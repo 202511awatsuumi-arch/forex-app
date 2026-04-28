@@ -1,4 +1,4 @@
-﻿# 為替アプリ API仕様書
+# 為替アプリ API仕様書
 
 ## 1. 最新レート取得
 - Method: GET
@@ -33,3 +33,17 @@
 - Method: DELETE
 - URL: /api/alerts/{id}
 - Response: 204 No Content
+
+---
+
+## 動作確認済み（Day 1）
+- [x] GET /api/rates
+- [x] GET /api/convert
+- [x] GET /api/rates/history
+- [ ] POST /api/alerts（後で確認）
+- [ ] DELETE /api/alerts/{id}（後で確認）
+
+## 備考
+- モックAPIで仕様通りの動作を確認
+- RateController.java にハードコードで実装済み
+- 次フェーズで本物のロジックに差し替え予定
