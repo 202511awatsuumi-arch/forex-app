@@ -1,74 +1,88 @@
 package com.example.forex_app.controller;
 
+import com.example.forex_app.model.AlertSetting;
+import com.example.forex_app.model.ExchangeRate;
+import com.example.forex_app.service.AlertService;
+import com.example.forex_app.service.ForexService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
 @RestController
 @RequestMapping("/api")
+@RequiredArgsConstructor
 public class RateController {
 
+    private final ForexService forexService;
+    private final AlertService alertService;
+
+    // 最新レート取得（本物）
     @GetMapping("/rates")
     public Map<String, Object> getLatestRates() {
-        Map<String, BigDecimal> rates = new LinkedHashMap<>();
-        rates.put("JPY", new BigDecimal("149.50"));
-        rates.put("EUR", new BigDecimal("0.92"));
+        Map<String, Object> response = new HashMap<>();
+        ExchangeRate jpy = forexService.getLatestRate("USD", "JPY");
+        ExchangeRate eur = forexService.getLatestRate("USD", "EUR");
 
-        Map<String, Object> response = new LinkedHashMap<>();
+        Map<String, Object> rates = new HashMap<>();
+        if (jpy != null) {
+            rates.put("JPY", jpy.getRate());
+            response.put("fetchedAt", jpy.getFetchedAt());
+        }
+        if (eur != null) rates.put("EUR", eur.getRate());
+
         response.put("base", "USD");
         response.put("rates", rates);
-        response.put("fetchedAt", "2026-04-28T10:00:00");
         return response;
     }
 
+    // 通貨換算（本物）
     @GetMapping("/convert")
     public Map<String, Object> convertCurrency(
             @RequestParam String from,
             @RequestParam String to,
-            @RequestParam int amount) {
-        Map<String, Object> response = new LinkedHashMap<>();
+            @RequestParam BigDecimal amount) {
+        BigDecimal result = forexService.convert(from, to, amount);
+        Map<String, Object> response = new HashMap<>();
         response.put("from", from);
         response.put("to", to);
         response.put("amount", amount);
-        response.put("result", new BigDecimal("14950.00"));
+        response.put("result", result);
         return response;
     }
 
+    // レート履歴（本物）
     @GetMapping("/rates/history")
-    public List<Map<String, Object>> getRateHistory(
+    public List<ExchangeRate> getRateHistory(
             @RequestParam String from,
             @RequestParam String to) {
-        Map<String, Object> day1 = new LinkedHashMap<>();
-        day1.put("date", "2026-04-27");
-        day1.put("rate", new BigDecimal("148.80"));
-
-        Map<String, Object> day2 = new LinkedHashMap<>();
-        day2.put("date", "2026-04-28");
-        day2.put("rate", new BigDecimal("149.50"));
-
-        return List.of(day1, day2);
+        return forexService.getHistory(from, to);
     }
 
+    // アラート一覧
+    @GetMapping("/alerts")
+    public List<AlertSetting> getAlerts() {
+        return alertService.getAllAlerts();
+    }
+
+    // アラート登録（本物）
     @PostMapping("/alerts")
-    public Map<String, Object> createAlert() {
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("id", 1);
+    public ResponseEntity<Map<String, Object>> createAlert(
+            @RequestBody AlertSetting alertSetting) {
+        alertService.createAlert(alertSetting);
+        Map<String, Object> response = new HashMap<>();
         response.put("message", "アラートを登録しました");
-        return response;
+        return ResponseEntity.ok(response);
     }
 
+    // アラート削除（本物）
     @DeleteMapping("/alerts/{id}")
-    public ResponseEntity<Void> deleteAlert(@PathVariable int id) {
+    public ResponseEntity<Void> deleteAlert(@PathVariable Long id) {
+        alertService.deleteAlert(id);
         return ResponseEntity.noContent().build();
     }
 }
