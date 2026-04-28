@@ -15,7 +15,7 @@
         SELECT * FROM exchange_rate
         WHERE base_currency = #{baseCurrency}
           AND target_currency = #{targetCurrency}
-          AND fetched_at >= DATEADD('DAY', -30, CURRENT_TIMESTAMP)
+          AND fetched_at >= DATEADD(DAY, -30, CURRENT_TIMESTAMP)
         ORDER BY fetched_at ASC
     </select>
 
@@ -26,7 +26,7 @@
 
     <delete id="deleteOlderThan30Days">
         DELETE FROM exchange_rate
-        WHERE fetched_at < DATEADD('DAY', -30, CURRENT_TIMESTAMP)
+        WHERE fetched_at &lt; DATEADD(DAY, -30, CURRENT_TIMESTAMP)
     </delete>
 
 </mapper>
