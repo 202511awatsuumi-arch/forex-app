@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.forex_app.mapper.ExchangeRateMapper">
+
+    <select id="findLatest" resultType="com.example.forex_app.model.ExchangeRate">
+        SELECT * FROM exchange_rate
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+        ORDER BY fetched_at DESC
+        LIMIT 1
+    </select>
+
+    <select id="findHistory" resultType="com.example.forex_app.model.ExchangeRate">
+        SELECT * FROM exchange_rate
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+          AND fetched_at >= DATEADD('DAY', -30, CURRENT_TIMESTAMP)
+        ORDER BY fetched_at ASC
+    </select>
+
+    <insert id="insert" parameterType="com.example.forex_app.model.ExchangeRate">
+        INSERT INTO exchange_rate (base_currency, target_currency, rate, fetched_at)
+        VALUES (#{baseCurrency}, #{targetCurrency}, #{rate}, #{fetchedAt})
+    </insert>
+
+    <delete id="deleteOlderThan30Days">
+        DELETE FROM exchange_rate
+        WHERE fetched_at < DATEADD('DAY', -30, CURRENT_TIMESTAMP)
+    </delete>
+
+</mapper>

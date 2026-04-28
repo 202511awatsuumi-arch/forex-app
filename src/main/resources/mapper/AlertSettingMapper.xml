@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.forex_app.mapper.AlertSettingMapper">
+
+    <select id="findAll" resultType="com.example.forex_app.model.AlertSetting">
+        SELECT * FROM alert_setting ORDER BY created_at DESC
+    </select>
+
+    <insert id="insert" parameterType="com.example.forex_app.model.AlertSetting"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO alert_setting
+            (base_currency, target_currency, threshold_rate, alert_type, triggered)
+        VALUES
+            (#{baseCurrency}, #{targetCurrency}, #{thresholdRate}, #{alertType}, false)
+    </insert>
+
+    <delete id="deleteById">
+        DELETE FROM alert_setting WHERE id = #{id}
+    </delete>
+
+    <select id="findUntriggered" resultType="com.example.forex_app.model.AlertSetting">
+        SELECT * FROM alert_setting WHERE triggered = FALSE
+    </select>
+
+    <update id="updateTriggered">
+        UPDATE alert_setting SET triggered = TRUE WHERE id = #{id}
+    </update>
+
+</mapper>
