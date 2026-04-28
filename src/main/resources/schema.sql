@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS exchange_rate (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    base_currency VARCHAR(3) NOT NULL,
+    target_currency VARCHAR(3) NOT NULL,
+    rate DECIMAL(15, 6) NOT NULL,
+    fetched_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_setting (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    base_currency VARCHAR(3) NOT NULL,
+    target_currency VARCHAR(3) NOT NULL,
+    threshold_rate DECIMAL(15, 6) NOT NULL,
+    alert_type VARCHAR(10) NOT NULL,
+    triggered BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
