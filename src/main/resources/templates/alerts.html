@@ -8,97 +8,207 @@
 </head>
 <body>
 <nav>
-    <a th:href="@{/}">🏠 ホーム</a>
-    <a th:href="@{/convert}">💱 換算</a>
-    <a th:href="@{/history}">📈 履歴</a>
-    <a th:href="@{/alerts}">🔔 アラート</a>
+    <a th:href="@{/}">ホーム</a>
+    <a th:href="@{/convert}">換算</a>
+    <a th:href="@{/history}">履歴</a>
+    <a th:href="@{/alerts}">アラート</a>
 </nav>
+
 <div class="container">
     <h1>アラート設定</h1>
+
     <div class="card">
-        <p class="desc">
-            指定したレートを超えた・下回ったときにこの画面でお知らせします。<br>
-            例：「1USD = 160円以上になったら教えて」という設定ができます。
-        </p>
+        <p class="desc">通貨ペア、閾値、条件を入力してアラートを登録します。</p>
+
         <div class="form-row">
-            <span class="label">通貨ペア</span>
-            <select id="pair">
-                <option value="USD,JPY">USD → JPY（米ドル / 日本円）</option>
-                <option value="USD,EUR">USD → EUR（米ドル / ユーロ）</option>
+            <label class="label" for="baseCurrency">baseCurrency</label>
+            <select id="baseCurrency">
+                <option value="USD">USD</option>
             </select>
-            <span class="label">閾値レート</span>
-            <input type="number" id="threshold" placeholder="例: 150.00" step="0.01">
-            <span class="label">条件</span>
+
+            <label class="label" for="targetCurrency">targetCurrency</label>
+            <select id="targetCurrency">
+                <option value="JPY">JPY</option>
+                <option value="EUR">EUR</option>
+            </select>
+
+            <label class="label" for="thresholdRate">thresholdRate</label>
+            <input type="number" id="thresholdRate" placeholder="例: 150.00" step="0.01" min="0">
+
+            <label class="label" for="alertType">alertType</label>
             <select id="alertType">
-                <option value="ABOVE">以上になったら</option>
-                <option value="BELOW">以下になったら</option>
+                <option value="ABOVE">ABOVE</option>
+                <option value="BELOW">BELOW</option>
             </select>
-            <button onclick="addAlert()">登録する</button>
+
+            <button id="registerButton" type="button">登録</button>
+        </div>
+
+        <div id="formMessage" class="desc" aria-live="polite"></div>
+    </div>
+
+    <div class="card">
+        <h2>アラート一覧</h2>
+        <div id="listMessage" class="desc" aria-live="polite"></div>
+
+        <div style="overflow-x:auto;">
+            <table id="alertTable" style="display:none;">
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>通貨ペア</th>
+                    <th>閾値</th>
+                    <th>条件</th>
+                    <th>状態</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody id="alertTableBody"></tbody>
+            </table>
         </div>
     </div>
-    <div class="card">
-        <h2>登録済みアラート</h2>
-        <div id="alertList">読み込み中...</div>
-    </div>
 </div>
+
 <script>
-    function loadAlerts() {
-        fetch('/api/alerts')
-            .then(r => r.json())
-            .then(data => {
-                if (!data || data.length === 0) {
-                    document.getElementById('alertList').innerHTML =
-                        '<p class="desc">アラートが登録されていません</p>';
-                    return;
-                }
-                let html = '<div style="overflow-x:auto;"><table>' +
-                    '<tr><th>通貨ペア</th><th>閾値</th><th>条件</th><th>状態</th><th>操作</th></tr>';
-                data.forEach(a => {
-                    const badge = a.triggered
-                        ? '<span class="alert-badge badge-done">✅ 発火済</span>'
-                        : '<span class="alert-badge badge-wait">⏳ 待機中</span>';
-                    html += '<tr>';
-                    html += '<td>' + a.baseCurrency + ' / ' + a.targetCurrency + '</td>';
-                    html += '<td>' + Number(a.thresholdRate).toFixed(2) + '</td>';
-                    html += '<td>' + (a.alertType === 'ABOVE' ? '以上' : '以下') + '</td>';
-                    html += '<td>' + badge + '</td>';
-                    html += '<td><button class="danger" onclick="deleteAlert('+a.id+')">削除</button></td>';
-                    html += '</tr>';
-                });
-                html += '</table></div>';
-                document.getElementById('alertList').innerHTML = html;
-            });
+(() => {
+    const formMessageEl = document.getElementById("formMessage");
+    const listMessageEl = document.getElementById("listMessage");
+    const tableEl = document.getElementById("alertTable");
+    const tbodyEl = document.getElementById("alertTableBody");
+
+    const baseCurrencyEl = document.getElementById("baseCurrency");
+    const targetCurrencyEl = document.getElementById("targetCurrency");
+    const thresholdRateEl = document.getElementById("thresholdRate");
+    const alertTypeEl = document.getElementById("alertType");
+    const registerButton = document.getElementById("registerButton");
+
+    function clearTable() {
+        tbodyEl.innerHTML = "";
+        tableEl.style.display = "none";
     }
 
-    function addAlert() {
-        const pair = document.getElementById('pair').value.split(',');
-        const threshold = document.getElementById('threshold').value;
-        if (!threshold || isNaN(threshold)) {
-            alert('閾値に正しい数値を入力してください');
+    function clearMessages() {
+        formMessageEl.textContent = "";
+        listMessageEl.textContent = "";
+    }
+
+    function statusBadge(triggered) {
+        if (triggered) {
+            return '<span class="alert-badge badge-done">発火済み</span>';
+        }
+        return '<span class="alert-badge badge-wait">待機中</span>';
+    }
+
+    function conditionLabel(alertType) {
+        return alertType === "ABOVE" ? "以上" : "以下";
+    }
+
+    function createRow(alert) {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+            `<td>${alert.id}</td>` +
+            `<td>${alert.baseCurrency}/${alert.targetCurrency}</td>` +
+            `<td>${Number(alert.thresholdRate).toFixed(2)}</td>` +
+            `<td>${conditionLabel(alert.alertType)}</td>` +
+            `<td>${statusBadge(alert.triggered)}</td>` +
+            `<td><button class="danger" type="button" data-id="${alert.id}">削除</button></td>`;
+        return tr;
+    }
+
+    async function loadAlerts() {
+        clearTable();
+        listMessageEl.textContent = "読み込み中...";
+
+        try {
+            const response = await fetch("/api/alerts");
+            if (!response.ok) {
+                throw new Error("GET /api/alerts failed");
+            }
+
+            const alerts = await response.json();
+
+            if (!Array.isArray(alerts) || alerts.length === 0) {
+                listMessageEl.textContent = "アラートはありません";
+                return;
+            }
+
+            listMessageEl.textContent = "";
+            alerts.forEach((alert) => {
+                tbodyEl.appendChild(createRow(alert));
+            });
+            tableEl.style.display = "table";
+        } catch (error) {
+            clearTable();
+            listMessageEl.textContent = "アラート一覧の取得に失敗しました。";
+        }
+    }
+
+    async function registerAlert() {
+        formMessageEl.textContent = "";
+
+        const thresholdRate = thresholdRateEl.value;
+        if (!thresholdRate || Number(thresholdRate) < 0) {
+            formMessageEl.textContent = "thresholdRate を正しく入力してください。";
             return;
         }
-        fetch('/api/alerts', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                baseCurrency: pair[0],
-                targetCurrency: pair[1],
-                thresholdRate: parseFloat(threshold),
-                alertType: document.getElementById('alertType').value
-            })
-        }).then(() => {
-            document.getElementById('threshold').value = '';
-            loadAlerts();
-        });
+
+        const payload = {
+            baseCurrency: baseCurrencyEl.value,
+            targetCurrency: targetCurrencyEl.value,
+            thresholdRate: Number(thresholdRate),
+            alertType: alertTypeEl.value
+        };
+
+        try {
+            const response = await fetch("/api/alerts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error("POST /api/alerts failed");
+            }
+
+            thresholdRateEl.value = "";
+            formMessageEl.textContent = "アラートを登録しました。";
+            await loadAlerts();
+        } catch (error) {
+            formMessageEl.textContent = "アラート登録に失敗しました。";
+        }
     }
 
-    function deleteAlert(id) {
-        if (!confirm('このアラートを削除しますか？')) return;
-        fetch('/api/alerts/' + id, { method: 'DELETE' })
-            .then(() => loadAlerts());
+    async function deleteAlert(id) {
+        try {
+            const response = await fetch(`/api/alerts/${id}`, {
+                method: "DELETE"
+            });
+
+            if (!response.ok) {
+                throw new Error("DELETE /api/alerts/{id} failed");
+            }
+
+            await loadAlerts();
+        } catch (error) {
+            listMessageEl.textContent = "アラート削除に失敗しました。";
+        }
     }
 
+    registerButton.addEventListener("click", registerAlert);
+
+    tbodyEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+
+        const id = target.getAttribute("data-id");
+        if (!id) return;
+
+        deleteAlert(id);
+    });
+
+    clearMessages();
     loadAlerts();
+})();
 </script>
 </body>
 </html>
