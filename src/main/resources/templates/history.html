@@ -5,82 +5,162 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>レート履歴</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <nav>
-    <a th:href="@{/}">🏠 ホーム</a>
-    <a th:href="@{/convert}">💱 換算</a>
-    <a th:href="@{/history}">📈 履歴</a>
-    <a th:href="@{/alerts}">🔔 アラート</a>
+    <a th:href="@{/}">ホーム</a>
+    <a th:href="@{/convert}">換算</a>
+    <a th:href="@{/history}">履歴</a>
+    <a th:href="@{/alerts}">アラート</a>
 </nav>
+
 <div class="container">
     <h1>レート履歴</h1>
+
     <div class="card">
-        <p class="desc">
-            過去30日間のレート推移をグラフで確認できます。<br>
-            グラフを見ることで「円高・円安のトレンド」や「両替のベストタイミング」を判断する参考にできます。
-        </p>
+        <p class="desc">通貨ペアを選択して履歴を取得します。</p>
+
         <div class="form-row">
-            <span class="label">通貨ペア</span>
-            <select id="pair" onchange="loadChart()">
-                <option value="USD,JPY">USD → JPY（米ドル / 日本円）</option>
-                <option value="USD,EUR">USD → EUR（米ドル / ユーロ）</option>
-            </select>
+            <label class="label" for="from">from</label>
+            <select id="from"></select>
+
+            <label class="label" for="to">to</label>
+            <select id="to"></select>
+
+            <button id="loadButton" type="button">取得</button>
         </div>
-        <canvas id="chart"></canvas>
-        <p id="nodata" style="display:none; color:#999; text-align:center; padding:20px;">
-            データがまだありません。毎朝9時にデータが蓄積されます。
-        </p>
+
+        <div id="message" class="desc" aria-live="polite"></div>
+
+        <table id="historyTable" style="display:none;">
+            <thead>
+            <tr>
+                <th>日付</th>
+                <th>通貨ペア</th>
+                <th>レート</th>
+                <th>取得日時</th>
+            </tr>
+            </thead>
+            <tbody id="historyBody"></tbody>
+        </table>
     </div>
 </div>
+
 <script>
-    let chart = null;
-    function loadChart() {
-        const pair = document.getElementById('pair').value.split(',');
-        const from = pair[0], to = pair[1];
-        fetch('/api/rates/history?from='+from+'&to='+to)
-            .then(r => r.json())
-            .then(data => {
-                if (chart) chart.destroy();
-                if (!data || data.length === 0) {
-                    document.getElementById('nodata').style.display = 'block';
-                    return;
-                }
-                document.getElementById('nodata').style.display = 'none';
-                chart = new Chart(document.getElementById('chart'), {
-                    type: 'line',
-                    data: {
-                        labels: data.map(d => d.fetchedAt
-                            ? d.fetchedAt.substring(0,10) : ''),
-                        datasets: [{
-                            label: from + ' / ' + to,
-                            data: data.map(d => d.rate),
-                            borderColor: '#1a73e8',
-                            backgroundColor: 'rgba(26,115,232,0.08)',
-                            tension: 0.3,
-                            fill: true,
-                            pointRadius: 3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: { display: true },
-                            tooltip: {
-                                callbacks: {
-                                    label: ctx => from+'/'+to+': '+ctx.parsed.y.toFixed(4)
-                                }
-                            }
-                        },
-                        scales: {
-                            y: { beginAtZero: false }
-                        }
-                    }
-                });
-            });
+(() => {
+    const currencies = ["USD", "JPY", "EUR"];
+
+    const fromSelect = document.getElementById("from");
+    const toSelect = document.getElementById("to");
+    const loadButton = document.getElementById("loadButton");
+    const messageEl = document.getElementById("message");
+    const tableEl = document.getElementById("historyTable");
+    const tbodyEl = document.getElementById("historyBody");
+
+    function clearTable() {
+        tbodyEl.innerHTML = "";
+        tableEl.style.display = "none";
     }
-    loadChart();
+
+    function showMessage(message) {
+        messageEl.textContent = message;
+    }
+
+    function populateFromOptions() {
+        fromSelect.innerHTML = "";
+        currencies.forEach((code) => {
+            const option = document.createElement("option");
+            option.value = code;
+            option.textContent = code;
+            fromSelect.appendChild(option);
+        });
+        fromSelect.value = "USD";
+    }
+
+    function populateToOptions() {
+        const from = fromSelect.value;
+        const prev = toSelect.value;
+        toSelect.innerHTML = "";
+
+        currencies
+            .filter((code) => code !== from)
+            .forEach((code) => {
+                const option = document.createElement("option");
+                option.value = code;
+                option.textContent = code;
+                if (code === prev) {
+                    option.selected = true;
+                }
+                toSelect.appendChild(option);
+            });
+
+        if (!toSelect.value) {
+            toSelect.selectedIndex = 0;
+        }
+    }
+
+    function formatRate(value) {
+        return Number(value).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 6
+        });
+    }
+
+    function formatDateTime(value) {
+        if (!value) return "-";
+        return value.replace("T", " ");
+    }
+
+    function renderHistory(from, to, history) {
+        clearTable();
+
+        history.forEach((item) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML =
+                `<td>${item.fetchedDate ?? "-"}</td>` +
+                `<td>${from}/${to}</td>` +
+                `<td>${formatRate(item.rate)}</td>` +
+                `<td>${formatDateTime(item.fetchedAt)}</td>`;
+            tbodyEl.appendChild(tr);
+        });
+
+        tableEl.style.display = "table";
+    }
+
+    async function loadHistory() {
+        clearTable();
+        showMessage("");
+
+        const from = fromSelect.value;
+        const to = toSelect.value;
+
+        try {
+            const params = new URLSearchParams({ from, to });
+            const response = await fetch(`/api/rates/history?${params.toString()}`);
+
+            if (!response.ok) {
+                throw new Error("API呼び出しに失敗しました");
+            }
+
+            const data = await response.json();
+
+            if (!Array.isArray(data) || data.length === 0) {
+                showMessage("履歴データがありません");
+                return;
+            }
+
+            renderHistory(from, to, data);
+        } catch (error) {
+            showMessage("履歴の取得に失敗しました。しばらくしてから再試行してください。");
+        }
+    }
+
+    fromSelect.addEventListener("change", populateToOptions);
+    loadButton.addEventListener("click", loadHistory);
+
+    populateFromOptions();
+    populateToOptions();
+})();
 </script>
 </body>
 </html>
