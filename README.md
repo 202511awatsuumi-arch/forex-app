@@ -108,3 +108,21 @@ Windows PowerShell の場合:
 - UI/UX 改善（操作フィードバック、ローディング表示）
 - 外部API障害時のリトライや監視強化
 - CI での自動テスト実行と品質ゲート整備
+## Render + Neon 本番デプロイ手順（追記）
+Render の Web Service 環境変数に以下を設定します。
+
+- `SPRING_PROFILES_ACTIVE=prod`
+- `DB_URL`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+
+`DB_URL` は Neon の PostgreSQL 接続URLを **JDBC形式** で設定してください。  
+例: `jdbc:postgresql://<host>/<database>?sslmode=require`
+
+本番DB接続情報はソースコードに直書きせず、Render の環境変数で管理します。
+
+ローカル起動はこれまで通り以下で `dev` / H2 を利用します。
+
+```bash
+./mvnw spring-boot:run
+```
