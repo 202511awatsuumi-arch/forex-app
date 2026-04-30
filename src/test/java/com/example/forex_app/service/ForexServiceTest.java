@@ -8,12 +8,26 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,7 +97,6 @@ class ForexServiceTest {
         BigDecimal result = forexService.convert(
             "EUR", "JPY", new BigDecimal("100"));
 
-        // 100EUR ÷ 0.85114 × 159.21 ≒ 18704円
         assertThat(result.doubleValue())
             .isCloseTo(18704.0, org.assertj.core.data.Offset.offset(10.0));
     }
@@ -98,5 +111,69 @@ class ForexServiceTest {
             "USD", "JPY", new BigDecimal("100"));
 
         assertThat(result).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("最新日付が今日なら補完不要でinsertしない")
+    void fillMissing_whenLatestDateIsToday_doesNotInsert() {
+        LocalDate today = LocalDate.now();
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today);
+
+        forexService.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
+    }
+
+    @Test
+    @DisplayName("取得結果が既存日付ならinsertしない")
+    void fillMissing_whenDateAlreadyExists_doesNotInsert() {
+        LocalDate today = LocalDate.now();
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today.minusDays(1));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(true);
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of("date", today.toString(), "base", "USD", "quote", "JPY", "rate", 159.21)
+        );
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(responseBody));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
+    }
+
+    @Test
+    @DisplayName("取得結果が異常値ならinsertしない")
+    void fillMissing_whenRateOutOfRange_doesNotInsert() {
+        LocalDate today = LocalDate.now();
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today.minusDays(1));
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of("date", today.toString(), "base", "USD", "quote", "JPY", "rate", 10.0)
+        );
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(responseBody));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
     }
 }

@@ -4,10 +4,10 @@ import com.example.forex_app.mapper.ExchangeRateMapper;
 import com.example.forex_app.model.ExchangeRate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -104,12 +104,11 @@ public class ForexService {
             baseCurrency, targetCurrency, startDate, today);
 
         try {
-            RestTemplate restTemplate = new RestTemplate();
+            RestTemplate restTemplate = createRestTemplate();
 
             List<Map<String, Object>> rateList;
 
             if (startDate.equals(today)) {
-                // 単日取得
                 rateList = restTemplate.exchange(
                     FRANKFURTER_DATE_URL,
                     HttpMethod.GET,
@@ -118,7 +117,6 @@ public class ForexService {
                     today.toString(), baseCurrency, targetCurrency
                 ).getBody();
             } else {
-                // 期間取得
                 rateList = restTemplate.exchange(
                     FRANKFURTER_RANGE_URL,
                     HttpMethod.GET,
@@ -136,19 +134,15 @@ public class ForexService {
             }
 
             for (Map<String, Object> entry : rateList) {
-                LocalDate rateDate = LocalDate.parse(
-                    entry.get("date").toString());
-                BigDecimal rateValue = new BigDecimal(
-                    entry.get("rate").toString());
+                LocalDate rateDate = LocalDate.parse(entry.get("date").toString());
+                BigDecimal rateValue = new BigDecimal(entry.get("rate").toString());
 
-                // 異常値チェック
                 if (!isValidRate(targetCurrency, rateValue)) {
                     log.warn("異常値スキップ: {}/{} {} = {}",
                         baseCurrency, targetCurrency, rateDate, rateValue);
                     continue;
                 }
 
-                // 重複チェック
                 if (exchangeRateMapper.existsByCurrencyPairAndDate(
                         baseCurrency, targetCurrency, rateDate)) {
                     log.info("保存済みスキップ: {}/{} {}",
@@ -175,7 +169,10 @@ public class ForexService {
         }
     }
 
-    // 異常値チェック（通貨ごとの妥当な範囲を検証）
+    RestTemplate createRestTemplate() {
+        return new RestTemplate();
+    }
+
     private boolean isValidRate(String targetCurrency, BigDecimal rate) {
         if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) return false;
         return switch (targetCurrency) {
