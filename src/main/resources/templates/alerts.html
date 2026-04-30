@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アラート設定</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+<nav>
+    <a th:href="@{/}">🏠 ホーム</a>
+    <a th:href="@{/convert}">💱 換算</a>
+    <a th:href="@{/history}">📈 履歴</a>
+    <a th:href="@{/alerts}">🔔 アラート</a>
+</nav>
+<div class="container">
+    <h1>アラート設定</h1>
+    <div class="card">
+        <p class="desc">
+            指定したレートを超えた・下回ったときにこの画面でお知らせします。<br>
+            例：「1USD = 160円以上になったら教えて」という設定ができます。
+        </p>
+        <div class="form-row">
+            <span class="label">通貨ペア</span>
+            <select id="pair">
+                <option value="USD,JPY">USD → JPY（米ドル / 日本円）</option>
+                <option value="USD,EUR">USD → EUR（米ドル / ユーロ）</option>
+            </select>
+            <span class="label">閾値レート</span>
+            <input type="number" id="threshold" placeholder="例: 150.00" step="0.01">
+            <span class="label">条件</span>
+            <select id="alertType">
+                <option value="ABOVE">以上になったら</option>
+                <option value="BELOW">以下になったら</option>
+            </select>
+            <button onclick="addAlert()">登録する</button>
+        </div>
+    </div>
+    <div class="card">
+        <h2>登録済みアラート</h2>
+        <div id="alertList">読み込み中...</div>
+    </div>
+</div>
+<script>
+    function loadAlerts() {
+        fetch('/api/alerts')
+            .then(r => r.json())
+            .then(data => {
+                if (!data || data.length === 0) {
+                    document.getElementById('alertList').innerHTML =
+                        '<p class="desc">アラートが登録されていません</p>';
+                    return;
+                }
+                let html = '<div style="overflow-x:auto;"><table>' +
+                    '<tr><th>通貨ペア</th><th>閾値</th><th>条件</th><th>状態</th><th>操作</th></tr>';
+                data.forEach(a => {
+                    const badge = a.triggered
+                        ? '<span class="alert-badge badge-done">✅ 発火済</span>'
+                        : '<span class="alert-badge badge-wait">⏳ 待機中</span>';
+                    html += '<tr>';
+                    html += '<td>' + a.baseCurrency + ' / ' + a.targetCurrency + '</td>';
+                    html += '<td>' + Number(a.thresholdRate).toFixed(2) + '</td>';
+                    html += '<td>' + (a.alertType === 'ABOVE' ? '以上' : '以下') + '</td>';
+                    html += '<td>' + badge + '</td>';
+                    html += '<td><button class="danger" onclick="deleteAlert('+a.id+')">削除</button></td>';
+                    html += '</tr>';
+                });
+                html += '</table></div>';
+                document.getElementById('alertList').innerHTML = html;
+            });
+    }
+
+    function addAlert() {
+        const pair = document.getElementById('pair').value.split(',');
+        const threshold = document.getElementById('threshold').value;
+        if (!threshold || isNaN(threshold)) {
+            alert('閾値に正しい数値を入力してください');
+            return;
+        }
+        fetch('/api/alerts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                baseCurrency: pair[0],
+                targetCurrency: pair[1],
+                thresholdRate: parseFloat(threshold),
+                alertType: document.getElementById('alertType').value
+            })
+        }).then(() => {
+            document.getElementById('threshold').value = '';
+            loadAlerts();
+        });
+    }
+
+    function deleteAlert(id) {
+        if (!confirm('このアラートを削除しますか？')) return;
+        fetch('/api/alerts/' + id, { method: 'DELETE' })
+            .then(() => loadAlerts());
+    }
+
+    loadAlerts();
+</script>
+</body>
+</html>

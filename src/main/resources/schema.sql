@@ -3,7 +3,10 @@ CREATE TABLE IF NOT EXISTS exchange_rate (
     base_currency VARCHAR(3) NOT NULL,
     target_currency VARCHAR(3) NOT NULL,
     rate DECIMAL(15, 6) NOT NULL,
-    fetched_at TIMESTAMP NOT NULL
+    fetched_date DATE NOT NULL,
+    fetched_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_rate_per_day
+        UNIQUE (base_currency, target_currency, fetched_date)
 );
 
 CREATE TABLE IF NOT EXISTS alert_setting (

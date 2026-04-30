@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>通貨換算</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+<nav>
+    <a th:href="@{/}">🏠 ホーム</a>
+    <a th:href="@{/convert}">💱 換算</a>
+    <a th:href="@{/history}">📈 履歴</a>
+    <a th:href="@{/alerts}">🔔 アラート</a>
+</nav>
+<div class="container">
+    <h1>通貨換算</h1>
+    <div class="card">
+        <p class="desc">
+            USD・JPY・EURの3通貨間で換算できます。金額・変換元・変換先を選んで「換算する」を押してください。
+        </p>
+        <div class="form-row">
+            <span class="label">金額</span>
+            <input type="number" id="amount" value="100" min="0" step="0.01">
+            <span class="label">変換元</span>
+            <select id="from" onchange="updateTo()">
+                <option value="USD">USD（米ドル）</option>
+                <option value="JPY">JPY（日本円）</option>
+                <option value="EUR">EUR（ユーロ）</option>
+            </select>
+            <span class="arrow">→</span>
+            <span class="label">変換先</span>
+            <select id="to"></select>
+            <button onclick="convert()">換算する</button>
+        </div>
+        <div id="result"></div>
+    </div>
+</div>
+<script>
+    const currencies = ['USD', 'JPY', 'EUR'];
+    const names = { USD: '米ドル', JPY: '日本円', EUR: 'ユーロ' };
+
+    function updateTo() {
+        const from = document.getElementById('from').value;
+        const toSel = document.getElementById('to');
+        const prev = toSel.value;
+        toSel.innerHTML = '';
+        currencies.filter(c => c !== from).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.text = c + '（' + names[c] + '）';
+            if (c === prev) opt.selected = true;
+            toSel.appendChild(opt);
+        });
+    }
+
+    function convert() {
+        const from = document.getElementById('from').value;
+        const to = document.getElementById('to').value;
+        const amount = document.getElementById('amount').value;
+        fetch('/api/convert?from='+from+'&to='+to+'&amount='+amount)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('result').innerHTML =
+                    '<div class="result-box">' +
+                    Number(amount).toLocaleString() + ' ' + from +
+                    ' = <strong>' +
+                    Number(data.result).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4}) +
+                    '</strong> ' + to + '</div>';
+            });
+    }
+
+    updateTo();
+</script>
+</body>
+</html>

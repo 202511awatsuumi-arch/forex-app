@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>為替レートアプリ</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+<nav>
+    <a th:href="@{/}">🏠 ホーム</a>
+    <a th:href="@{/convert}">💱 換算</a>
+    <a th:href="@{/history}">📈 履歴</a>
+    <a th:href="@{/alerts}">🔔 アラート</a>
+</nav>
+<div class="container">
+    <h1>最新為替レート</h1>
+    <div class="card">
+        <p class="desc">
+            USD（米ドル）を基準とした最新の為替レートです。毎朝9時に自動更新されます。
+        </p>
+        <div id="fetchTime" class="fetch-time"></div>
+        <div id="rates">読み込み中...</div>
+    </div>
+</div>
+<script>
+    const names = { JPY: '日本円', EUR: 'ユーロ', USD: '米ドル' };
+    fetch('/api/rates')
+        .then(r => r.json())
+        .then(data => {
+            if (data.fetchedAt) {
+                document.getElementById('fetchTime').textContent =
+                    '最終更新: ' + data.fetchedAt.substring(0, 16).replace('T', ' ');
+            }
+            let html = '<table><tr><th>通貨コード</th><th>通貨名</th><th>1USDあたりのレート</th></tr>';
+            for (const [k, v] of Object.entries(data.rates || {})) {
+                html += '<tr>';
+                html += '<td><b>' + k + '</b></td>';
+                html += '<td>' + (names[k] || k) + '</td>';
+                html += '<td><span class="rate-val">' + Number(v).toFixed(4) + '</span></td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            document.getElementById('rates').innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('rates').innerHTML =
+                '<p style="color:#e8453c;">レートの取得に失敗しました。しばらくしてから再試行してください。</p>';
+        });
+</script>
+</body>
+</html>
