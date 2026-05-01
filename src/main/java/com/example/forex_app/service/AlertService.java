@@ -1,4 +1,4 @@
-﻿package com.example.forex_app.service;
+package com.example.forex_app.service;
 
 import com.example.forex_app.mapper.AlertSettingMapper;
 import com.example.forex_app.mapper.ExchangeRateMapper;
