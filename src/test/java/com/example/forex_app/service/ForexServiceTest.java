@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -405,5 +406,98 @@ class ForexServiceTest {
         verify(exchangeRateMapper).updateRateByCurrencyPairAndDate(
             eq("USD"), eq("JPY"), eq(yesterday), eq(new BigDecimal("159.21")), eq("FRANKFURTER")
         );
+    }
+
+    @Test
+    void fillMissing_whenLatestDateIsNull_startsFrankfurterFromTodayMinus364() {
+        LocalDate today = LocalDate.now();
+        LocalDate expectedStart = today.minusDays(364);
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(null);
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
+        when(exchangeRateMapper.findBySourceBeforeDate("USD", "JPY", "FXAPI", today))
+            .thenReturn(List.of());
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        Map<String, Object> fxapiResponse = Map.of(
+            "base", "USD",
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
+        );
+        List<Map<String, Object>> frankfurterResponse = List.of(
+            Map.of("date", expectedStart.toString(), "base", "USD", "quote", "JPY", "rate", 159.21)
+        );
+
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(frankfurterResponse));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        ArgumentCaptor<Object[]> argsCaptor = ArgumentCaptor.forClass(Object[].class);
+        verify(restTemplate, times(2)).exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            argsCaptor.capture()
+        );
+        Object[] frankfurterArgs = argsCaptor.getAllValues().get(1);
+        assertThat(frankfurterArgs[0]).isEqualTo(expectedStart.toString());
+        assertThat(frankfurterArgs[1]).isEqualTo(today.minusDays(1).toString());
+    }
+
+    @Test
+    void fillMissing_whenLatestDateExists_startsFrankfurterFromLatestPlusOne() {
+        LocalDate today = LocalDate.now();
+        LocalDate latestDate = today.minusDays(10);
+        LocalDate expectedStart = latestDate.plusDays(1);
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(latestDate);
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
+        when(exchangeRateMapper.findBySourceBeforeDate("USD", "JPY", "FXAPI", today))
+            .thenReturn(List.of());
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        Map<String, Object> fxapiResponse = Map.of(
+            "base", "USD",
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
+        );
+        List<Map<String, Object>> frankfurterResponse = List.of(
+            Map.of("date", expectedStart.toString(), "base", "USD", "quote", "JPY", "rate", 159.21)
+        );
+
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(frankfurterResponse));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        ArgumentCaptor<Object[]> argsCaptor = ArgumentCaptor.forClass(Object[].class);
+        verify(restTemplate, times(2)).exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            argsCaptor.capture()
+        );
+        Object[] frankfurterArgs = argsCaptor.getAllValues().get(1);
+        assertThat(frankfurterArgs[0]).isEqualTo(expectedStart.toString());
+        assertThat(frankfurterArgs[1]).isEqualTo(today.minusDays(1).toString());
     }
 }

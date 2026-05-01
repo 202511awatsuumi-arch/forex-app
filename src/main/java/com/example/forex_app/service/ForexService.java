@@ -32,6 +32,7 @@ public class ForexService {
 
     private static final String FXAPI_TODAY_URL =
         "https://fxapi.app/api/{base}/{target}.json";
+    private static final int INITIAL_RATE_HISTORY_DAYS = 365;
 
     private static final BigDecimal MIN_JPY = new BigDecimal("50");
     private static final BigDecimal MAX_JPY = new BigDecimal("500");
@@ -83,7 +84,9 @@ public class ForexService {
     public void fillMissingRatesUntilToday(String baseCurrency, String targetCurrency) {
         LocalDate today = LocalDate.now();
         LocalDate latestDate = exchangeRateMapper.findLatestDate(baseCurrency, targetCurrency);
-        LocalDate startDate = (latestDate != null) ? latestDate.plusDays(1) : today.minusDays(30);
+        LocalDate startDate = (latestDate != null)
+            ? latestDate.plusDays(1)
+            : today.minusDays(INITIAL_RATE_HISTORY_DAYS - 1);
 
         try {
             RestTemplate restTemplate = createRestTemplate();

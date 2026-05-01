@@ -34,17 +34,24 @@
 
         <div id="message" class="desc" aria-live="polite"></div>
 
+        <div style="margin-top:12px;">
+            <canvas id="historyChart" width="900" height="320" style="display:none; width:100%;"></canvas>
+        </div>
+
+        <div style="margin-top:12px;">
         <table id="historyTable" style="display:none;">
             <thead>
             <tr>
                 <th>日付</th>
-                <th>通貨ペア</th>
+                <th>FROM</th>
+                <th>TO</th>
                 <th>レート</th>
                 <th>取得日時</th>
             </tr>
             </thead>
             <tbody id="historyBody"></tbody>
         </table>
+        </div>
     </div>
 </div>
 
@@ -57,10 +64,18 @@
     const messageEl = document.getElementById("message");
     const tableEl = document.getElementById("historyTable");
     const tbodyEl = document.getElementById("historyBody");
+    const chartEl = document.getElementById("historyChart");
 
     function clearTable() {
         tbodyEl.innerHTML = "";
         tableEl.style.display = "none";
+        clearChart();
+    }
+
+    function clearChart() {
+        const ctx = chartEl.getContext("2d");
+        ctx.clearRect(0, 0, chartEl.width, chartEl.height);
+        chartEl.style.display = "none";
     }
 
     function showMessage(message) {
@@ -82,17 +97,117 @@
     function renderHistory(from, to, history) {
         clearTable();
 
-        history.forEach((item) => {
+        const tableRows = [...history]
+            .sort((a, b) => String(b.fetchedDate ?? "").localeCompare(String(a.fetchedDate ?? "")))
+            .slice(0, 100);
+
+        tableRows.forEach((item) => {
             const tr = document.createElement("tr");
             tr.innerHTML =
                 `<td>${item.fetchedDate ?? "-"}</td>` +
-                `<td>${from}/${to}</td>` +
+                `<td>${from}</td>` +
+                `<td>${to}</td>` +
                 `<td>${formatRate(item.rate)}</td>` +
                 `<td>${formatDateTime(item.fetchedAt)}</td>`;
             tbodyEl.appendChild(tr);
         });
 
         tableEl.style.display = "table";
+        const chartHistory = [...history]
+            .sort((a, b) => String(a.fetchedDate ?? "").localeCompare(String(b.fetchedDate ?? "")));
+        renderHistoryChart(chartHistory, from, to);
+    }
+
+    function renderHistoryChart(history, from, to) {
+        const ctx = chartEl.getContext("2d");
+        const width = chartEl.width;
+        const height = chartEl.height;
+        const margin = { top: 20, right: 80, bottom: 45, left: 60 };
+        const plotW = width - margin.left - margin.right;
+        const plotH = height - margin.top - margin.bottom;
+
+        const rates = history.map((h) => Number(h.rate));
+        let minRate = Math.min(...rates);
+        let maxRate = Math.max(...rates);
+        if (minRate === maxRate) {
+            const pad = minRate === 0 ? 1 : Math.abs(minRate) * 0.05;
+            minRate -= pad;
+            maxRate += pad;
+        } else {
+            const pad = (maxRate - minRate) * 0.1;
+            minRate -= pad;
+            maxRate += pad;
+        }
+
+        const xAt = (i) => {
+            if (history.length === 1) return margin.left + plotW / 2;
+            return margin.left + (plotW * i) / (history.length - 1);
+        };
+        const yAt = (r) => margin.top + ((maxRate - r) / (maxRate - minRate)) * plotH;
+
+        ctx.clearRect(0, 0, width, height);
+
+        ctx.strokeStyle = "#cccccc";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(margin.left, margin.top);
+        ctx.lineTo(margin.left, margin.top + plotH);
+        ctx.lineTo(margin.left + plotW, margin.top + plotH);
+        ctx.stroke();
+
+        ctx.fillStyle = "#333333";
+        ctx.font = "12px sans-serif";
+        const yTicks = 5;
+        for (let i = 0; i < yTicks; i++) {
+            const t = i / (yTicks - 1);
+            const value = maxRate - (maxRate - minRate) * t;
+            const y = margin.top + plotH * t;
+            ctx.strokeStyle = "#eeeeee";
+            ctx.beginPath();
+            ctx.moveTo(margin.left, y);
+            ctx.lineTo(margin.left + plotW, y);
+            ctx.stroke();
+            ctx.fillText(value.toFixed(4), 6, y + 4);
+        }
+
+        const labelIndexes = [0, Math.floor((history.length - 1) / 2), history.length - 1]
+            .filter((v, idx, arr) => arr.indexOf(v) === idx);
+        labelIndexes.forEach((idx) => {
+            const x = xAt(idx);
+            const label = history[idx].fetchedDate ?? "";
+            const textWidth = ctx.measureText(label).width;
+            const clampedX = Math.min(
+                Math.max(x - textWidth / 2, margin.left),
+                width - margin.right + (margin.right - textWidth)
+            );
+            ctx.fillText(label, clampedX, margin.top + plotH + 20);
+        });
+
+        ctx.strokeStyle = "#1f77b4";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        history.forEach((item, idx) => {
+            const x = xAt(idx);
+            const y = yAt(Number(item.rate));
+            if (idx === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        ctx.fillStyle = "#1f77b4";
+        history.forEach((item, idx) => {
+            const x = xAt(idx);
+            const y = yAt(Number(item.rate));
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        ctx.fillStyle = "#111111";
+        ctx.font = "bold 13px sans-serif";
+        ctx.fillText(`${from}/${to} レート推移`, margin.left, 14);
+
+        chartEl.style.display = "block";
     }
 
     async function loadHistory() {
