@@ -10,6 +10,7 @@ public class ExchangeRate {
     private Long id;
     private String baseCurrency;
     private String targetCurrency;
+    private String source;
     private BigDecimal rate;
     private LocalDate fetchedDate;
     private LocalDateTime fetchedAt;

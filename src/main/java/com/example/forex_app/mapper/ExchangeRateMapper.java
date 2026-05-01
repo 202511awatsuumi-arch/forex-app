@@ -33,6 +33,19 @@ public interface ExchangeRateMapper {
     // レートを保存
     void insert(ExchangeRate exchangeRate);
 
+    void updateRateByCurrencyPairAndDate(
+        @Param("baseCurrency") String baseCurrency,
+        @Param("targetCurrency") String targetCurrency,
+        @Param("fetchedDate") LocalDate fetchedDate,
+        @Param("rate") java.math.BigDecimal rate,
+        @Param("source") String source);
+
+    List<LocalDate> findBySourceBeforeDate(
+        @Param("baseCurrency") String baseCurrency,
+        @Param("targetCurrency") String targetCurrency,
+        @Param("source") String source,
+        @Param("beforeDate") LocalDate beforeDate);
+
     // 365日より古いデータを削除
     void deleteOlderThan365Days();
 }

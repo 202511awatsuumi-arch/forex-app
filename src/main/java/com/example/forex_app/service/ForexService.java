@@ -13,8 +13,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -26,8 +28,8 @@ public class ForexService {
     private static final String FRANKFURTER_RANGE_URL =
         "https://api.frankfurter.dev/v2/rates?from={from}&to={to}&base={base}&quotes={quotes}";
 
-    private static final String FRANKFURTER_DATE_URL =
-        "https://api.frankfurter.dev/v2/rates?date={date}&base={base}&quotes={quotes}";
+    private static final String FXAPI_TODAY_URL =
+        "https://api.fxapi.app/latest?base={base}&currencies={quotes}";
 
     private static final BigDecimal MIN_JPY = new BigDecimal("50");
     private static final BigDecimal MAX_JPY = new BigDecimal("500");
@@ -79,132 +81,179 @@ public class ForexService {
     public void fillMissingRatesUntilToday(String baseCurrency, String targetCurrency) {
         LocalDate today = LocalDate.now();
         LocalDate latestDate = exchangeRateMapper.findLatestDate(baseCurrency, targetCurrency);
-
-        LocalDate startDate = (latestDate != null)
-            ? latestDate.plusDays(1)
-            : today.minusDays(30);
-
-        if (!startDate.isBefore(today.plusDays(1))) {
-            log.info("[{}→{}] 補完不要: 最新={}", baseCurrency, targetCurrency, latestDate);
-            return;
-        }
-
-        log.info("[{}→{}] 補完開始: {} ～ {}", baseCurrency, targetCurrency, startDate, today);
+        LocalDate startDate = (latestDate != null) ? latestDate.plusDays(1) : today.minusDays(30);
 
         try {
             RestTemplate restTemplate = createRestTemplate();
-            Map<String, Object> response;
 
-            if (startDate.equals(today)) {
-                response = restTemplate.exchange(
-                    FRANKFURTER_DATE_URL,
-                    HttpMethod.GET,
-                    null,
-                    new ParameterizedTypeReference<Map<String, Object>>() {},
-                    today.toString(), baseCurrency, targetCurrency
-                ).getBody();
-            } else {
-                response = restTemplate.exchange(
+            fetchAndSaveTodayFromFxapi(restTemplate, baseCurrency, targetCurrency, today);
+
+            List<LocalDate> fxapiPastDates = exchangeRateMapper.findBySourceBeforeDate(
+                baseCurrency, targetCurrency, "FXAPI", today
+            );
+            if (fxapiPastDates == null) {
+                fxapiPastDates = List.of();
+            }
+            LocalDate frankfurterStartDate = startDate;
+            if (!fxapiPastDates.isEmpty()) {
+                LocalDate minFxapiDate = fxapiPastDates.stream().min(LocalDate::compareTo).orElse(startDate);
+                if (minFxapiDate.isBefore(frankfurterStartDate)) {
+                    frankfurterStartDate = minFxapiDate;
+                }
+            }
+
+            if (frankfurterStartDate.isBefore(today)) {
+                List<Map<String, Object>> response = restTemplate.exchange(
                     FRANKFURTER_RANGE_URL,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<Map<String, Object>>() {},
-                    startDate.toString(), today.toString(), baseCurrency, targetCurrency
+                    new ParameterizedTypeReference<List<Map<String, Object>>>() {},
+                    frankfurterStartDate.toString(), today.minusDays(1).toString(), baseCurrency, targetCurrency
                 ).getBody();
-            }
 
-            if (response == null || response.isEmpty()) {
-                log.warn("[{}→{}] レートデータなし", baseCurrency, targetCurrency);
-                return;
-            }
-
-            int processed = startDate.equals(today)
-                ? saveFromSingleResponse(response, baseCurrency, targetCurrency)
-                : saveFromRangeResponse(response, baseCurrency, targetCurrency);
-
-            if (processed == 0) {
-                log.warn("[{}→{}] レートデータなし", baseCurrency, targetCurrency);
+                if (response != null && !response.isEmpty()) {
+                    saveFromFrankfurterListResponse(
+                        response, baseCurrency, targetCurrency, today, new HashSet<>(fxapiPastDates)
+                    );
+                }
             }
 
             exchangeRateMapper.deleteOlderThan365Days();
-
         } catch (Exception e) {
-            log.error("[{}→{}] レート補完エラー: {}", baseCurrency, targetCurrency, e.getMessage());
+            log.error("[{}->{}] fill error: {}", baseCurrency, targetCurrency, e.getMessage());
         }
     }
 
-    private int saveFromSingleResponse(Map<String, Object> response, String baseCurrency, String targetCurrency) {
+    private void fetchAndSaveTodayFromFxapi(
+        RestTemplate restTemplate, String baseCurrency, String targetCurrency, LocalDate today
+    ) {
+        Map<String, Object> response = restTemplate.exchange(
+            FXAPI_TODAY_URL,
+            HttpMethod.GET,
+            null,
+            new ParameterizedTypeReference<Map<String, Object>>() {},
+            baseCurrency, targetCurrency
+        ).getBody();
+
+        if (response == null || response.isEmpty()) {
+            return;
+        }
+
         Object dateObj = response.get("date");
-        Map<String, Object> rates = asStringObjectMap(response.get("rates"));
-        if (dateObj == null || rates == null) {
-            return 0;
+        Object baseObj = response.get("base");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rates = (response.get("rates") instanceof Map<?, ?>)
+            ? (Map<String, Object>) response.get("rates")
+            : null;
+        if (dateObj == null || baseObj == null || rates == null) {
+            return;
+        }
+        if (!baseCurrency.equals(baseObj.toString())) {
+            return;
         }
 
         Object rateObj = rates.get(targetCurrency);
         if (rateObj == null) {
-            return 0;
+            return;
         }
 
         LocalDate rateDate = LocalDate.parse(dateObj.toString());
-        BigDecimal rateValue = new BigDecimal(rateObj.toString());
-        saveRateIfNeeded(baseCurrency, targetCurrency, rateDate, rateValue);
-        return 1;
-    }
-
-    private int saveFromRangeResponse(Map<String, Object> response, String baseCurrency, String targetCurrency) {
-        Map<String, Object> ratesByDate = asStringObjectMap(response.get("rates"));
-        if (ratesByDate == null || ratesByDate.isEmpty()) {
-            return 0;
+        if (!today.equals(rateDate)) {
+            return;
         }
 
+        BigDecimal rateValue = new BigDecimal(rateObj.toString());
+        saveTodayRateFromFxapi(baseCurrency, targetCurrency, rateDate, rateValue);
+    }
+
+    private int saveFromFrankfurterListResponse(
+        List<Map<String, Object>> responses,
+        String baseCurrency,
+        String targetCurrency,
+        LocalDate today,
+        Set<LocalDate> fxapiPastDates
+    ) {
         int processed = 0;
-        for (Map.Entry<String, Object> dayEntry : ratesByDate.entrySet()) {
-            Map<String, Object> rates = asStringObjectMap(dayEntry.getValue());
-            if (rates == null) {
-                continue;
-            }
-            Object rateObj = rates.get(targetCurrency);
-            if (rateObj == null) {
+        for (Map<String, Object> entry : responses) {
+            if (entry == null) {
                 continue;
             }
 
-            LocalDate rateDate = LocalDate.parse(dayEntry.getKey());
+            Object dateObj = entry.get("date");
+            Object baseObj = entry.get("base");
+            Object quoteObj = entry.get("quote");
+            Object rateObj = entry.get("rate");
+            if (dateObj == null || baseObj == null || quoteObj == null || rateObj == null) {
+                continue;
+            }
+            if (!baseCurrency.equals(baseObj.toString())) {
+                continue;
+            }
+            if (!targetCurrency.equals(quoteObj.toString())) {
+                continue;
+            }
+
+            LocalDate rateDate = LocalDate.parse(dateObj.toString());
+            if (!rateDate.isBefore(today)) {
+                continue;
+            }
+
             BigDecimal rateValue = new BigDecimal(rateObj.toString());
-            saveRateIfNeeded(baseCurrency, targetCurrency, rateDate, rateValue);
+            saveHistoricalRateFromFrankfurter(baseCurrency, targetCurrency, rateDate, rateValue, fxapiPastDates);
             processed++;
         }
         return processed;
     }
 
-    private void saveRateIfNeeded(String baseCurrency, String targetCurrency,
-                                  LocalDate rateDate, BigDecimal rateValue) {
+    private void saveTodayRateFromFxapi(String baseCurrency, String targetCurrency,
+                                        LocalDate rateDate, BigDecimal rateValue) {
         if (!isValidRate(targetCurrency, rateValue)) {
-            log.warn("異常値スキップ: {}/{} {} = {}",
-                baseCurrency, targetCurrency, rateDate, rateValue);
             return;
         }
 
         if (exchangeRateMapper.existsByCurrencyPairAndDate(baseCurrency, targetCurrency, rateDate)) {
-            log.info("保存済みスキップ: {}/{} {}", baseCurrency, targetCurrency, rateDate);
+            exchangeRateMapper.updateRateByCurrencyPairAndDate(
+                baseCurrency, targetCurrency, rateDate, rateValue, "FXAPI"
+            );
             return;
         }
 
         ExchangeRate rate = new ExchangeRate();
         rate.setBaseCurrency(baseCurrency);
         rate.setTargetCurrency(targetCurrency);
+        rate.setSource("FXAPI");
         rate.setRate(rateValue);
         rate.setFetchedDate(rateDate);
         rate.setFetchedAt(LocalDateTime.now());
         exchangeRateMapper.insert(rate);
-        log.info("保存完了: {}/{} {} = {}", baseCurrency, targetCurrency, rateDate, rateValue);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asStringObjectMap(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            return (Map<String, Object>) map;
+    private void saveHistoricalRateFromFrankfurter(String baseCurrency, String targetCurrency,
+                                                   LocalDate rateDate, BigDecimal rateValue,
+                                                   Set<LocalDate> fxapiPastDates) {
+        if (!isValidRate(targetCurrency, rateValue)) {
+            return;
         }
-        return null;
+
+        if (fxapiPastDates.contains(rateDate)) {
+            exchangeRateMapper.updateRateByCurrencyPairAndDate(
+                baseCurrency, targetCurrency, rateDate, rateValue, "FRANKFURTER"
+            );
+            return;
+        }
+
+        if (exchangeRateMapper.existsByCurrencyPairAndDate(baseCurrency, targetCurrency, rateDate)) {
+            return;
+        }
+
+        ExchangeRate rate = new ExchangeRate();
+        rate.setBaseCurrency(baseCurrency);
+        rate.setTargetCurrency(targetCurrency);
+        rate.setSource("FRANKFURTER");
+        rate.setRate(rateValue);
+        rate.setFetchedDate(rateDate);
+        rate.setFetchedAt(LocalDateTime.now());
+        exchangeRateMapper.insert(rate);
     }
 
     RestTemplate createRestTemplate() {

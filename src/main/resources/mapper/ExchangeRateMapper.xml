@@ -37,11 +37,30 @@
     <insert id="insert"
             parameterType="com.example.forex_app.model.ExchangeRate">
         INSERT INTO exchange_rate
-            (base_currency, target_currency, rate, fetched_date, fetched_at)
+            (base_currency, target_currency, source, rate, fetched_date, fetched_at)
         VALUES
-            (#{baseCurrency}, #{targetCurrency}, #{rate},
+            (#{baseCurrency}, #{targetCurrency}, #{source}, #{rate},
              #{fetchedDate}, #{fetchedAt})
     </insert>
+
+    <update id="updateRateByCurrencyPairAndDate">
+        UPDATE exchange_rate
+        SET rate = #{rate},
+            source = #{source},
+            fetched_at = CURRENT_TIMESTAMP
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+          AND fetched_date = #{fetchedDate}
+    </update>
+
+    <select id="findBySourceBeforeDate" resultType="java.time.LocalDate">
+        SELECT fetched_date
+        FROM exchange_rate
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+          AND source = #{source}
+          AND fetched_date &lt; #{beforeDate}
+    </select>
 
     <delete id="deleteOlderThan365Days">
         DELETE FROM exchange_rate

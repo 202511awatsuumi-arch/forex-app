@@ -110,34 +110,21 @@ class ForexServiceTest {
     }
 
     @Test
-    @DisplayName("最新日付が今日なら補完不要でinsertしない")
+    @DisplayName("最新日付が今日でもFXAPIで当日レートを取得して更新する")
     void fillMissing_whenLatestDateIsToday_doesNotInsert() {
         LocalDate today = LocalDate.now();
         when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today);
-
-        forexService.fillMissingRatesUntilToday("USD", "JPY");
-
-        verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
-    }
-
-    @Test
-    @DisplayName("期間取得: rates.日付.JPY から正しく保存できる")
-    void fillMissing_rangeResponse_parsesRatesByDate() {
-        LocalDate today = LocalDate.now();
-        LocalDate targetDate = today.minusDays(1);
-
-        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today.minusDays(2));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(true);
 
         ForexService serviceSpy = spy(forexService);
         RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
-        Map<String, Object> responseBody = Map.of(
-            "amount", 107.36,
+        Map<String, Object> fxapiResponse = Map.of(
+            "date", today.toString(),
             "base", "USD",
-            "start_date", targetDate.toString(),
-            "end_date", targetDate.toString(),
-            "rates", Map.of(targetDate.toString(), Map.of("JPY", 159.21))
+            "rates", Map.of("JPY", 160.55),
+            "amount", 1
         );
 
         when(restTemplate.exchange(
@@ -146,31 +133,91 @@ class ForexServiceTest {
             isNull(),
             any(ParameterizedTypeReference.class),
             any(Object[].class)
-        )).thenReturn(ResponseEntity.ok(responseBody));
+        )).thenReturn(ResponseEntity.ok(fxapiResponse));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
+        verify(exchangeRateMapper).updateRateByCurrencyPairAndDate(
+            eq("USD"), eq("JPY"), eq(today), eq(new BigDecimal("160.55")), eq("FXAPI")
+        );
+    }
+
+    @Test
+    @DisplayName("過去未保存レートはFrankfurterでinsertされsource=FRANKFURTERになる")
+    void fillMissing_rangeResponse_parsesListEntries() {
+        LocalDate today = LocalDate.now();
+        LocalDate targetDate = today.minusDays(1);
+
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(targetDate.minusDays(1));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", targetDate)).thenReturn(false);
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        Map<String, Object> fxapiResponse = Map.of(
+            "date", today.toString(),
+            "base", "USD",
+            "rates", Map.of("JPY", 160.55)
+        );
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of(
+                "date", targetDate.toString(),
+                "base", "USD",
+                "quote", "JPY",
+                "rate", 159.21
+            )
+        );
+
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(responseBody));
 
         serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
 
         ArgumentCaptor<ExchangeRate> captor = ArgumentCaptor.forClass(ExchangeRate.class);
-        verify(exchangeRateMapper).insert(captor.capture());
-        assertThat(captor.getValue().getFetchedDate()).isEqualTo(targetDate);
-        assertThat(captor.getValue().getRate()).isEqualByComparingTo("159.21");
+        verify(exchangeRateMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues())
+            .anySatisfy(rate -> {
+                assertThat(rate.getFetchedDate()).isEqualTo(targetDate);
+                assertThat(rate.getRate()).isEqualByComparingTo("159.21");
+                assertThat(rate.getSource()).isEqualTo("FRANKFURTER");
+            });
     }
 
     @Test
-    @DisplayName("単日取得: rates.JPY から正しく保存し、amount値を誤読しない")
+    @DisplayName("今日のUSD/JPYをFXAPIレスポンスから保存しsource=FXAPIになる")
     void fillMissing_singleResponse_parsesTargetRateNotAmount() {
         LocalDate today = LocalDate.now();
         when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today.minusDays(1));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
 
         ForexService serviceSpy = spy(forexService);
         RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
-        Map<String, Object> responseBody = Map.of(
-            "amount", 107.36,
-            "base", "USD",
+        Map<String, Object> fxapiResponse = Map.of(
             "date", today.toString(),
-            "rates", Map.of("JPY", 160.55)
+            "base", "USD",
+            "rates", Map.of("JPY", 160.55),
+            "amount", 107.36
+        );
+
+        List<Map<String, Object>> frankfurterResponse = List.of(
+            Map.of(
+                "date", today.minusDays(0).toString(),
+                "base", "USD",
+                "quote", "JPY",
+                "rate", 160.55,
+                "amount", 107.36
+            )
         );
 
         when(restTemplate.exchange(
@@ -179,7 +226,7 @@ class ForexServiceTest {
             isNull(),
             any(ParameterizedTypeReference.class),
             any(Object[].class)
-        )).thenReturn(ResponseEntity.ok(responseBody));
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(frankfurterResponse));
 
         serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
 
@@ -187,6 +234,7 @@ class ForexServiceTest {
         verify(exchangeRateMapper).insert(captor.capture());
         assertThat(captor.getValue().getFetchedDate()).isEqualTo(today);
         assertThat(captor.getValue().getRate()).isEqualByComparingTo("160.55");
+        assertThat(captor.getValue().getSource()).isEqualTo("FXAPI");
     }
 
     @Test
@@ -200,11 +248,20 @@ class ForexServiceTest {
         RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
-        Map<String, Object> responseBody = Map.of(
-            "amount", 1.0,
-            "base", "USD",
+        Map<String, Object> fxapiResponse = Map.of(
             "date", today.toString(),
+            "base", "USD",
             "rates", Map.of("JPY", 159.21)
+        );
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of(
+                "date", today.toString(),
+                "base", "USD",
+                "quote", "JPY",
+                "rate", 159.21,
+                "amount", 1.0
+            )
         );
 
         when(restTemplate.exchange(
@@ -213,11 +270,14 @@ class ForexServiceTest {
             isNull(),
             any(ParameterizedTypeReference.class),
             any(Object[].class)
-        )).thenReturn(ResponseEntity.ok(responseBody));
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(responseBody));
 
         serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
 
         verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
+        verify(exchangeRateMapper).updateRateByCurrencyPairAndDate(
+            eq("USD"), eq("JPY"), eq(today), eq(new BigDecimal("159.21")), eq("FXAPI")
+        );
     }
 
     @Test
@@ -230,11 +290,20 @@ class ForexServiceTest {
         RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
-        Map<String, Object> responseBody = Map.of(
-            "amount", 1.0,
-            "base", "USD",
+        Map<String, Object> fxapiResponse = Map.of(
             "date", today.toString(),
+            "base", "USD",
             "rates", Map.of("JPY", 10.0)
+        );
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of(
+                "date", today.toString(),
+                "base", "USD",
+                "quote", "JPY",
+                "rate", 10.0,
+                "amount", 1.0
+            )
         );
 
         when(restTemplate.exchange(
@@ -243,10 +312,93 @@ class ForexServiceTest {
             isNull(),
             any(ParameterizedTypeReference.class),
             any(Object[].class)
-        )).thenReturn(ResponseEntity.ok(responseBody));
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(responseBody));
 
         serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
 
         verify(exchangeRateMapper, never()).insert(any(ExchangeRate.class));
+    }
+
+    @Test
+    @DisplayName("quoteがtargetCurrencyと不一致のentryは保存しない")
+    void fillMissing_whenQuoteIsDifferent_doesNotInsert() {
+        LocalDate today = LocalDate.now();
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(today.minusDays(1));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        Map<String, Object> fxapiResponse = Map.of(
+            "date", today.toString(),
+            "base", "USD",
+            "rates", Map.of("JPY", 160.55)
+        );
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of(
+                "date", today.toString(),
+                "base", "USD",
+                "quote", "EUR",
+                "rate", 0.85114
+            )
+        );
+
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(responseBody));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper, org.mockito.Mockito.times(1)).insert(any(ExchangeRate.class));
+    }
+
+    @Test
+    @DisplayName("昨日のsource=FXAPIレコードはFrankfurterで上書きしsource=FRANKFURTERに更新")
+    void fillMissing_whenYesterdayFxapiExists_updatesByFrankfurter() {
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        when(exchangeRateMapper.findLatestDate("USD", "JPY")).thenReturn(yesterday.minusDays(1));
+        when(exchangeRateMapper.existsByCurrencyPairAndDate("USD", "JPY", today)).thenReturn(false);
+        when(exchangeRateMapper.findBySourceBeforeDate("USD", "JPY", "FXAPI", today))
+            .thenReturn(List.of(yesterday));
+
+        ForexService serviceSpy = spy(forexService);
+        RestTemplate restTemplate = org.mockito.Mockito.mock(RestTemplate.class);
+        doReturn(restTemplate).when(serviceSpy).createRestTemplate();
+
+        Map<String, Object> fxapiResponse = Map.of(
+            "date", today.toString(),
+            "base", "USD",
+            "rates", Map.of("JPY", 160.55)
+        );
+
+        List<Map<String, Object>> responseBody = List.of(
+            Map.of(
+                "date", yesterday.toString(),
+                "base", "USD",
+                "quote", "JPY",
+                "rate", 159.21
+            )
+        );
+
+        when(restTemplate.exchange(
+            anyString(),
+            eq(HttpMethod.GET),
+            isNull(),
+            any(ParameterizedTypeReference.class),
+            any(Object[].class)
+        )).thenReturn(ResponseEntity.ok(fxapiResponse), ResponseEntity.ok(responseBody));
+
+        serviceSpy.fillMissingRatesUntilToday("USD", "JPY");
+
+        verify(exchangeRateMapper).updateRateByCurrencyPairAndDate(
+            eq("USD"), eq("JPY"), eq(yesterday), eq(new BigDecimal("159.21")), eq("FRANKFURTER")
+        );
     }
 }
