@@ -11,8 +11,10 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +31,7 @@ public class ForexService {
         "https://api.frankfurter.dev/v2/rates?from={from}&to={to}&base={base}&quotes={quotes}";
 
     private static final String FXAPI_TODAY_URL =
-        "https://api.fxapi.app/latest?base={base}&currencies={quotes}";
+        "https://fxapi.app/api/{base}/{target}.json";
 
     private static final BigDecimal MIN_JPY = new BigDecimal("50");
     private static final BigDecimal MAX_JPY = new BigDecimal("500");
@@ -139,25 +141,23 @@ public class ForexService {
             return;
         }
 
-        Object dateObj = response.get("date");
         Object baseObj = response.get("base");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> rates = (response.get("rates") instanceof Map<?, ?>)
-            ? (Map<String, Object>) response.get("rates")
-            : null;
-        if (dateObj == null || baseObj == null || rates == null) {
+        Object targetObj = response.get("target");
+        Object rateObj = response.get("rate");
+        Object timestampObj = response.get("timestamp");
+        if (baseObj == null || targetObj == null || rateObj == null || timestampObj == null) {
             return;
         }
         if (!baseCurrency.equals(baseObj.toString())) {
             return;
         }
-
-        Object rateObj = rates.get(targetCurrency);
-        if (rateObj == null) {
+        if (!targetCurrency.equals(targetObj.toString())) {
             return;
         }
 
-        LocalDate rateDate = LocalDate.parse(dateObj.toString());
+        LocalDate rateDate = Instant.parse(timestampObj.toString())
+            .atZone(ZoneOffset.UTC)
+            .toLocalDate();
         if (!today.equals(rateDate)) {
             return;
         }

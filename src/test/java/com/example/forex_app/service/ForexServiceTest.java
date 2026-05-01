@@ -121,10 +121,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 160.55),
-            "amount", 1
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         when(restTemplate.exchange(
@@ -158,9 +158,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 160.55)
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> responseBody = List.of(
@@ -204,10 +205,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 160.55),
-            "amount", 107.36
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> frankfurterResponse = List.of(
@@ -249,9 +250,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 159.21)
+            "target", "JPY",
+            "rate", 159.21,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> responseBody = List.of(
@@ -291,9 +293,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 10.0)
+            "target", "JPY",
+            "rate", 10.0,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> responseBody = List.of(
@@ -331,9 +334,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 160.55)
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> responseBody = List.of(
@@ -373,9 +377,10 @@ class ForexServiceTest {
         doReturn(restTemplate).when(serviceSpy).createRestTemplate();
 
         Map<String, Object> fxapiResponse = Map.of(
-            "date", today.toString(),
             "base", "USD",
-            "rates", Map.of("JPY", 160.55)
+            "target", "JPY",
+            "rate", 160.55,
+            "timestamp", today.toString() + "T12:00:00Z"
         );
 
         List<Map<String, Object>> responseBody = List.of(

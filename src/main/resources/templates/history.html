@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
@@ -18,14 +18,16 @@
     <h1>レート履歴</h1>
 
     <div class="card">
-        <p class="desc">通貨ペアを選択して履歴を取得します。</p>
+        <p class="desc">この画面では、DBに保存されているUSD基準の履歴（USD/JPY・USD/EUR）を表示します。</p>
 
         <div class="form-row">
-            <label class="label" for="from">from</label>
-            <select id="from"></select>
+            <span class="label">基準通貨: USD（固定）</span>
 
             <label class="label" for="to">to</label>
-            <select id="to"></select>
+            <select id="to">
+                <option value="JPY">JPY</option>
+                <option value="EUR">EUR</option>
+            </select>
 
             <button id="loadButton" type="button">取得</button>
         </div>
@@ -48,9 +50,8 @@
 
 <script>
 (() => {
-    const currencies = ["USD", "JPY", "EUR"];
+    const FIXED_FROM = "USD";
 
-    const fromSelect = document.getElementById("from");
     const toSelect = document.getElementById("to");
     const loadButton = document.getElementById("loadButton");
     const messageEl = document.getElementById("message");
@@ -64,39 +65,6 @@
 
     function showMessage(message) {
         messageEl.textContent = message;
-    }
-
-    function populateFromOptions() {
-        fromSelect.innerHTML = "";
-        currencies.forEach((code) => {
-            const option = document.createElement("option");
-            option.value = code;
-            option.textContent = code;
-            fromSelect.appendChild(option);
-        });
-        fromSelect.value = "USD";
-    }
-
-    function populateToOptions() {
-        const from = fromSelect.value;
-        const prev = toSelect.value;
-        toSelect.innerHTML = "";
-
-        currencies
-            .filter((code) => code !== from)
-            .forEach((code) => {
-                const option = document.createElement("option");
-                option.value = code;
-                option.textContent = code;
-                if (code === prev) {
-                    option.selected = true;
-                }
-                toSelect.appendChild(option);
-            });
-
-        if (!toSelect.value) {
-            toSelect.selectedIndex = 0;
-        }
     }
 
     function formatRate(value) {
@@ -131,7 +99,7 @@
         clearTable();
         showMessage("");
 
-        const from = fromSelect.value;
+        const from = FIXED_FROM;
         const to = toSelect.value;
 
         try {
@@ -145,21 +113,17 @@
             const data = await response.json();
 
             if (!Array.isArray(data) || data.length === 0) {
-                showMessage("履歴データがありません");
+                showMessage("履歴データを取得できませんでした。起動時のレート取得処理を確認してください。");
                 return;
             }
 
             renderHistory(from, to, data);
         } catch (error) {
-            showMessage("履歴の取得に失敗しました。しばらくしてから再試行してください。");
+            showMessage("履歴データを取得できませんでした。起動時のレート取得処理を確認してください。");
         }
     }
 
-    fromSelect.addEventListener("change", populateToOptions);
     loadButton.addEventListener("click", loadHistory);
-
-    populateFromOptions();
-    populateToOptions();
 })();
 </script>
 </body>
