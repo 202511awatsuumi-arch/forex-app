@@ -115,4 +115,52 @@ class AlertServiceTest {
 
         verify(alertSettingMapper, never()).updateTriggered(any());
     }
+
+    @Test
+    void createAlert_ABOVE_whenCurrentRateIsGreaterThanOrEqualThreshold_triggersImmediately() {
+        AlertSetting newAlert = alert(150.0, "ABOVE");
+        when(exchangeRateMapper.findLatest("USD", "JPY"))
+            .thenReturn(rate(157.165935));
+
+        alertService.createAlert(newAlert);
+
+        verify(alertSettingMapper, times(1)).insert(newAlert);
+        verify(alertSettingMapper, times(1)).updateTriggered(1L);
+    }
+
+    @Test
+    void createAlert_ABOVE_whenCurrentRateIsBelowThreshold_doesNotTrigger() {
+        AlertSetting newAlert = alert(160.0, "ABOVE");
+        when(exchangeRateMapper.findLatest("USD", "JPY"))
+            .thenReturn(rate(157.165935));
+
+        alertService.createAlert(newAlert);
+
+        verify(alertSettingMapper, times(1)).insert(newAlert);
+        verify(alertSettingMapper, never()).updateTriggered(any());
+    }
+
+    @Test
+    void createAlert_BELOW_whenCurrentRateIsLessThanOrEqualThreshold_triggersImmediately() {
+        AlertSetting newAlert = alert(160.0, "BELOW");
+        when(exchangeRateMapper.findLatest("USD", "JPY"))
+            .thenReturn(rate(157.165935));
+
+        alertService.createAlert(newAlert);
+
+        verify(alertSettingMapper, times(1)).insert(newAlert);
+        verify(alertSettingMapper, times(1)).updateTriggered(1L);
+    }
+
+    @Test
+    void createAlert_whenLatestRateIsNull_doesNotTrigger() {
+        AlertSetting newAlert = alert(150.0, "ABOVE");
+        when(exchangeRateMapper.findLatest("USD", "JPY"))
+            .thenReturn(null);
+
+        alertService.createAlert(newAlert);
+
+        verify(alertSettingMapper, times(1)).insert(newAlert);
+        verify(alertSettingMapper, never()).updateTriggered(any());
+    }
 }
