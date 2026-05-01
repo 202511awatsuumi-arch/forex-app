@@ -29,7 +29,6 @@ public class ForexService {
     private static final String FRANKFURTER_DATE_URL =
         "https://api.frankfurter.dev/v2/rates?date={date}&base={base}&quotes={quotes}";
 
-    // レート異常値チェック用（1USD基準の妥当な範囲）
     private static final BigDecimal MIN_JPY = new BigDecimal("50");
     private static final BigDecimal MAX_JPY = new BigDecimal("500");
     private static final BigDecimal MIN_EUR = new BigDecimal("0.5");
@@ -77,96 +76,135 @@ public class ForexService {
         return BigDecimal.ZERO;
     }
 
-    /**
-     * DBの最新fetched_dateの翌日から今日までのレートを補完する
-     * レスポンスはList形式:
-     * [{"date":"2026-04-25","base":"USD","quote":"JPY","rate":159.51}, ...]
-     * 土日・祝日はFrankfurterがデータを返さないためスキップ（正常）
-     */
-    public void fillMissingRatesUntilToday(
-            String baseCurrency, String targetCurrency) {
-
+    public void fillMissingRatesUntilToday(String baseCurrency, String targetCurrency) {
         LocalDate today = LocalDate.now();
-        LocalDate latestDate = exchangeRateMapper.findLatestDate(
-            baseCurrency, targetCurrency);
+        LocalDate latestDate = exchangeRateMapper.findLatestDate(baseCurrency, targetCurrency);
 
         LocalDate startDate = (latestDate != null)
             ? latestDate.plusDays(1)
             : today.minusDays(30);
 
         if (!startDate.isBefore(today.plusDays(1))) {
-            log.info("[{}→{}] 補完不要: 最新={}",
-                baseCurrency, targetCurrency, latestDate);
+            log.info("[{}→{}] 補完不要: 最新={}", baseCurrency, targetCurrency, latestDate);
             return;
         }
 
-        log.info("[{}→{}] 補完開始: {} ～ {}",
-            baseCurrency, targetCurrency, startDate, today);
+        log.info("[{}→{}] 補完開始: {} ～ {}", baseCurrency, targetCurrency, startDate, today);
 
         try {
             RestTemplate restTemplate = createRestTemplate();
-
-            List<Map<String, Object>> rateList;
+            Map<String, Object> response;
 
             if (startDate.equals(today)) {
-                rateList = restTemplate.exchange(
+                response = restTemplate.exchange(
                     FRANKFURTER_DATE_URL,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Map<String, Object>>>() {},
+                    new ParameterizedTypeReference<Map<String, Object>>() {},
                     today.toString(), baseCurrency, targetCurrency
                 ).getBody();
             } else {
-                rateList = restTemplate.exchange(
+                response = restTemplate.exchange(
                     FRANKFURTER_RANGE_URL,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Map<String, Object>>>() {},
-                    startDate.toString(), today.toString(),
-                    baseCurrency, targetCurrency
+                    new ParameterizedTypeReference<Map<String, Object>>() {},
+                    startDate.toString(), today.toString(), baseCurrency, targetCurrency
                 ).getBody();
             }
 
-            if (rateList == null || rateList.isEmpty()) {
-                log.warn("[{}→{}] レートデータなし",
-                    baseCurrency, targetCurrency);
+            if (response == null || response.isEmpty()) {
+                log.warn("[{}→{}] レートデータなし", baseCurrency, targetCurrency);
                 return;
             }
 
-            for (Map<String, Object> entry : rateList) {
-                LocalDate rateDate = LocalDate.parse(entry.get("date").toString());
-                BigDecimal rateValue = new BigDecimal(entry.get("rate").toString());
+            int processed = startDate.equals(today)
+                ? saveFromSingleResponse(response, baseCurrency, targetCurrency)
+                : saveFromRangeResponse(response, baseCurrency, targetCurrency);
 
-                if (!isValidRate(targetCurrency, rateValue)) {
-                    log.warn("異常値スキップ: {}/{} {} = {}",
-                        baseCurrency, targetCurrency, rateDate, rateValue);
-                    continue;
-                }
-
-                if (exchangeRateMapper.existsByCurrencyPairAndDate(
-                        baseCurrency, targetCurrency, rateDate)) {
-                    log.info("保存済みスキップ: {}/{} {}",
-                        baseCurrency, targetCurrency, rateDate);
-                    continue;
-                }
-
-                ExchangeRate rate = new ExchangeRate();
-                rate.setBaseCurrency(baseCurrency);
-                rate.setTargetCurrency(targetCurrency);
-                rate.setRate(rateValue);
-                rate.setFetchedDate(rateDate);
-                rate.setFetchedAt(LocalDateTime.now());
-                exchangeRateMapper.insert(rate);
-                log.info("保存完了: {}/{} {} = {}",
-                    baseCurrency, targetCurrency, rateDate, rateValue);
+            if (processed == 0) {
+                log.warn("[{}→{}] レートデータなし", baseCurrency, targetCurrency);
             }
 
             exchangeRateMapper.deleteOlderThan365Days();
 
         } catch (Exception e) {
-            log.error("[{}→{}] レート補完エラー: {}",
-                baseCurrency, targetCurrency, e.getMessage());
+            log.error("[{}→{}] レート補完エラー: {}", baseCurrency, targetCurrency, e.getMessage());
         }
+    }
+
+    private int saveFromSingleResponse(Map<String, Object> response, String baseCurrency, String targetCurrency) {
+        Object dateObj = response.get("date");
+        Map<String, Object> rates = asStringObjectMap(response.get("rates"));
+        if (dateObj == null || rates == null) {
+            return 0;
+        }
+
+        Object rateObj = rates.get(targetCurrency);
+        if (rateObj == null) {
+            return 0;
+        }
+
+        LocalDate rateDate = LocalDate.parse(dateObj.toString());
+        BigDecimal rateValue = new BigDecimal(rateObj.toString());
+        saveRateIfNeeded(baseCurrency, targetCurrency, rateDate, rateValue);
+        return 1;
+    }
+
+    private int saveFromRangeResponse(Map<String, Object> response, String baseCurrency, String targetCurrency) {
+        Map<String, Object> ratesByDate = asStringObjectMap(response.get("rates"));
+        if (ratesByDate == null || ratesByDate.isEmpty()) {
+            return 0;
+        }
+
+        int processed = 0;
+        for (Map.Entry<String, Object> dayEntry : ratesByDate.entrySet()) {
+            Map<String, Object> rates = asStringObjectMap(dayEntry.getValue());
+            if (rates == null) {
+                continue;
+            }
+            Object rateObj = rates.get(targetCurrency);
+            if (rateObj == null) {
+                continue;
+            }
+
+            LocalDate rateDate = LocalDate.parse(dayEntry.getKey());
+            BigDecimal rateValue = new BigDecimal(rateObj.toString());
+            saveRateIfNeeded(baseCurrency, targetCurrency, rateDate, rateValue);
+            processed++;
+        }
+        return processed;
+    }
+
+    private void saveRateIfNeeded(String baseCurrency, String targetCurrency,
+                                  LocalDate rateDate, BigDecimal rateValue) {
+        if (!isValidRate(targetCurrency, rateValue)) {
+            log.warn("異常値スキップ: {}/{} {} = {}",
+                baseCurrency, targetCurrency, rateDate, rateValue);
+            return;
+        }
+
+        if (exchangeRateMapper.existsByCurrencyPairAndDate(baseCurrency, targetCurrency, rateDate)) {
+            log.info("保存済みスキップ: {}/{} {}", baseCurrency, targetCurrency, rateDate);
+            return;
+        }
+
+        ExchangeRate rate = new ExchangeRate();
+        rate.setBaseCurrency(baseCurrency);
+        rate.setTargetCurrency(targetCurrency);
+        rate.setRate(rateValue);
+        rate.setFetchedDate(rateDate);
+        rate.setFetchedAt(LocalDateTime.now());
+        exchangeRateMapper.insert(rate);
+        log.info("保存完了: {}/{} {} = {}", baseCurrency, targetCurrency, rateDate, rateValue);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asStringObjectMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return null;
     }
 
     RestTemplate createRestTemplate() {
