@@ -5,6 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>レート履歴</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .history-table-wrapper {
+            max-height: 420px;
+            overflow: auto;
+        }
+        #historyTable {
+            min-width: 760px;
+            width: max-content;
+        }
+        .history-chart-wrap {
+            display: none;
+            margin-top: 12px;
+            position: relative;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 8px 88px 8px 8px;
+        }
+        .history-chart-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        .history-chart-rate-badge {
+            position: absolute;
+            right: 10px;
+            transform: translateY(-50%);
+            background: #1a73e8;
+            color: #ffffff;
+            font-size: 12px;
+            line-height: 1;
+            padding: 6px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            display: none;
+            pointer-events: none;
+        }
+        .history-chart-scale {
+            position: absolute;
+            top: 8px;
+            right: 48px;
+            width: 70px;
+            height: 320px;
+            pointer-events: none;
+            display: none;
+        }
+        .history-chart-scale-item {
+            position: absolute;
+            right: 0;
+            transform: translateY(-50%);
+            font-size: 11px;
+            color: #333333;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+
+        .history-pagination {
+            margin-top: 12px;
+            text-align: center;
+            display: none;
+        }
+
+        .history-pagination button {
+            margin: 0 6px;
+        }
+    </style>
 </head>
 <body>
 <nav>
@@ -36,27 +102,39 @@
             <input id="dateTo" type="date">
 
             <button id="loadButton" type="button">表示/検索</button>
+            <button id="chartToggleButton" type="button">グラフ</button>
         </div>
 
         <div id="message" class="desc" aria-live="polite"></div>
 
-        <div style="margin-top:12px;">
-            <canvas id="historyChart" width="900" height="320" style="display:none; width:100%;"></canvas>
+        <div id="historyChartWrap" class="history-chart-wrap">
+            <div id="historyChartScroll" class="history-chart-scroll">
+                <canvas id="historyChart" width="900" height="320" style="display:none;"></canvas>
+            </div>
+            <div id="historyChartScale" class="history-chart-scale"></div>
+            <div id="historyChartRateBadge" class="history-chart-rate-badge"></div>
         </div>
 
         <div style="margin-top:12px;">
-        <table id="historyTable" style="display:none;">
-            <thead>
-            <tr>
-                <th>日付</th>
-                <th>FROM</th>
-                <th>TO</th>
-                <th>レート</th>
-                <th>取得日時</th>
-            </tr>
-            </thead>
-            <tbody id="historyBody"></tbody>
-        </table>
+        <div id="historyTableWrapper" class="history-table-wrapper" style="display:none;">
+            <table id="historyTable" style="display:none;">
+                <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>FROM</th>
+                    <th>TO</th>
+                    <th>レート</th>
+                    <th>取得日時</th>
+                </tr>
+                </thead>
+                <tbody id="historyBody"></tbody>
+            </table>
+        </div>
+        <div id="historyPagination" class="history-pagination">
+            <button id="historyPrevButton" type="button">前へ</button>
+            <span id="historyPageInfo"></span>
+            <button id="historyNextButton" type="button">次へ</button>
+        </div>
         </div>
     </div>
 </div>
@@ -69,14 +147,56 @@
     const dateFromInput = document.getElementById("dateFrom");
     const dateToInput = document.getElementById("dateTo");
     const loadButton = document.getElementById("loadButton");
+    const chartToggleButton = document.getElementById("chartToggleButton");
     const messageEl = document.getElementById("message");
     const tableEl = document.getElementById("historyTable");
     const tbodyEl = document.getElementById("historyBody");
     const chartEl = document.getElementById("historyChart");
+    const chartWrapEl = document.getElementById("historyChartWrap");
+    const chartScrollEl = document.getElementById("historyChartScroll");
+    const chartScaleEl = document.getElementById("historyChartScale");
+    const chartRateBadgeEl = document.getElementById("historyChartRateBadge");
+    const tableWrapperEl = document.getElementById("historyTableWrapper");
+    const paginationEl = document.getElementById("historyPagination");
+    const prevButtonEl = document.getElementById("historyPrevButton");
+    const nextButtonEl = document.getElementById("historyNextButton");
+    const pageInfoEl = document.getElementById("historyPageInfo");
+
+    const PAGE_SIZE = 20;
+    let currentPage = 1;
+    let paginatedRows = [];
+    let currentFrom = FIXED_FROM;
+    let currentTo = "JPY";
+    let isChartVisible = false;
+    let chartRows = [];
+    let currentChartFrom = FIXED_FROM;
+    let currentChartTo = "JPY";
+    let chartPoints = [];
+    let chartMargin = { top: 20, right: 110, bottom: 72, left: 60 };
+    let chartMinRate = 0;
+    let chartMaxRate = 0;
+    let chartPlotHeight = 0;
+
+    function formatChartDate(value) {
+        return String(value ?? "").replace(/-/g, "/");
+    }
+
+    function hideTableArea() {
+        tableEl.style.display = "none";
+        tableWrapperEl.style.display = "none";
+        paginationEl.style.display = "none";
+    }
+
+    function showTableArea() {
+        renderHistoryPage();
+    }
 
     function clearTable() {
         tbodyEl.innerHTML = "";
-        tableEl.style.display = "none";
+        hideTableArea();
+        pageInfoEl.textContent = "";
+        currentPage = 1;
+        paginatedRows = [];
         clearChart();
     }
 
@@ -84,6 +204,37 @@
         const ctx = chartEl.getContext("2d");
         ctx.clearRect(0, 0, chartEl.width, chartEl.height);
         chartEl.style.display = "none";
+        chartWrapEl.style.display = "none";
+        chartScaleEl.style.display = "none";
+        chartScaleEl.innerHTML = "";
+        chartRateBadgeEl.style.display = "none";
+        chartRateBadgeEl.textContent = "";
+        chartPoints = [];
+        chartScrollEl.scrollLeft = 0;
+    }
+
+    function updateRightVisibleRate() {
+        if (chartPoints.length === 0) return;
+        const visibleRightX = chartScrollEl.scrollLeft + chartScrollEl.clientWidth;
+        let target = chartPoints[0];
+        for (const point of chartPoints) {
+            if (point.x <= visibleRightX) {
+                target = point;
+            } else {
+                break;
+            }
+        }
+        if (visibleRightX < chartPoints[0].x) {
+            target = chartPoints[0];
+        }
+
+        const yRatio = (chartMaxRate - target.rate) / (chartMaxRate - chartMinRate);
+        const y = chartMargin.top + yRatio * chartPlotHeight;
+        chartRateBadgeEl.textContent = formatRate(target.rate);
+        chartRateBadgeEl.style.top = `${Math.round(y)}px`;
+        if (isChartVisible) {
+            chartRateBadgeEl.style.display = "block";
+        }
     }
 
     function showMessage(message) {
@@ -130,34 +281,66 @@
     function renderHistory(from, to, history) {
         clearTable();
 
-        const tableRows = [...history]
-            .sort((a, b) => String(b.fetchedDate ?? "").localeCompare(String(a.fetchedDate ?? "")))
-            .slice(0, 100);
+        currentFrom = from;
+        currentTo = to;
+        paginatedRows = [...history]
+            .sort((a, b) => String(b.fetchedDate ?? "").localeCompare(String(a.fetchedDate ?? "")));
+        currentPage = 1;
+        renderHistoryPage();
 
-        tableRows.forEach((item) => {
+        chartRows = [...history]
+            .sort((a, b) => String(a.fetchedDate ?? "").localeCompare(String(b.fetchedDate ?? "")));
+        currentChartFrom = from;
+        currentChartTo = to;
+    }
+
+    function renderHistoryPage() {
+        tbodyEl.innerHTML = "";
+
+        const totalPages = Math.max(1, Math.ceil(paginatedRows.length / PAGE_SIZE));
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+        }
+        const start = (currentPage - 1) * PAGE_SIZE;
+        const pageRows = paginatedRows.slice(start, start + PAGE_SIZE);
+
+        pageRows.forEach((item) => {
             const tr = document.createElement("tr");
             tr.innerHTML =
                 `<td>${item.fetchedDate ?? "-"}</td>` +
-                `<td>${from}</td>` +
-                `<td>${to}</td>` +
+                `<td>${currentFrom}</td>` +
+                `<td>${currentTo}</td>` +
                 `<td>${formatRate(item.rate)}</td>` +
                 `<td>${formatDateTime(item.fetchedAt)}</td>`;
             tbodyEl.appendChild(tr);
         });
 
+        tableWrapperEl.style.display = "block";
         tableEl.style.display = "table";
-        const chartHistory = [...history]
-            .sort((a, b) => String(a.fetchedDate ?? "").localeCompare(String(b.fetchedDate ?? "")));
-        renderHistoryChart(chartHistory, from, to);
+
+        if (totalPages <= 1) {
+            paginationEl.style.display = "none";
+            return;
+        }
+
+        paginationEl.style.display = "block";
+        pageInfoEl.textContent = `${currentPage} / ${totalPages}`;
+        prevButtonEl.disabled = currentPage <= 1;
+        nextButtonEl.disabled = currentPage >= totalPages;
     }
 
     function renderHistoryChart(history, from, to) {
         const ctx = chartEl.getContext("2d");
+        const minStep = 48;
+        const computedWidth = Math.max(900, chartMargin.left + chartMargin.right + minStep * Math.max(1, history.length - 1));
+        chartEl.width = computedWidth;
+        chartEl.height = 320;
         const width = chartEl.width;
         const height = chartEl.height;
-        const margin = { top: 20, right: 80, bottom: 45, left: 60 };
+        const margin = chartMargin;
         const plotW = width - margin.left - margin.right;
         const plotH = height - margin.top - margin.bottom;
+        chartPlotHeight = plotH;
 
         const rates = history.map((h) => Number(h.rate));
         let minRate = Math.min(...rates);
@@ -171,6 +354,8 @@
             minRate -= pad;
             maxRate += pad;
         }
+        chartMinRate = minRate;
+        chartMaxRate = maxRate;
 
         const xAt = (i) => {
             if (history.length === 1) return margin.left + plotW / 2;
@@ -180,48 +365,86 @@
 
         ctx.clearRect(0, 0, width, height);
 
+        ctx.fillStyle = "#333333";
+        ctx.font = "12px sans-serif";
+        const yTicks = 5;
+        const scaleItems = [];
+        const yGridPositions = [];
+        for (let i = 0; i < yTicks; i++) {
+            const t = i / (yTicks - 1);
+            const value = maxRate - (maxRate - minRate) * t;
+            const y = margin.top + plotH * t;
+            yGridPositions.push(y);
+            scaleItems.push({ y, value: value.toFixed(4) });
+        }
+
+        const visibleWidth = Math.max(1, chartScrollEl.clientWidth);
+        const desiredVisibleLabels = 3;
+        const pxPerLabel = Math.max(120, Math.floor(visibleWidth / desiredVisibleLabels));
+        const approxVisiblePoints = Math.max(1, Math.floor(visibleWidth / minStep));
+        const xLabelStep = Math.max(1, Math.ceil(approxVisiblePoints / desiredVisibleLabels));
+        const drawEveryPoints = Math.max(1, Math.ceil(pxPerLabel / minStep));
+        const effectiveLabelStep = Math.max(xLabelStep, drawEveryPoints);
+        const xGridPositions = [];
+        const xLabelItems = [];
+        ctx.fillStyle = "#333333";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        history.forEach((item, idx) => {
+            const isLast = idx === history.length - 1;
+            if (!isLast && idx % effectiveLabelStep !== 0) return;
+            const x = xAt(idx);
+            xGridPositions.push(x);
+            xLabelItems.push({ x, label: formatChartDate(item.fetchedDate) });
+        });
+
+        // 1) background is clearRect above, 2) draw subtle grid lines.
+        ctx.strokeStyle = "#d7dfe8";
+        ctx.lineWidth = 1.2;
+        yGridPositions.forEach((y) => {
+            ctx.beginPath();
+            ctx.moveTo(margin.left, y);
+            ctx.lineTo(margin.left + plotW, y);
+            ctx.stroke();
+        });
+        xGridPositions.forEach((x) => {
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, margin.top + plotH);
+            ctx.stroke();
+        });
+
+        // 3) draw axes after grid so axes stay clearer than grid.
         ctx.strokeStyle = "#cccccc";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(margin.left, margin.top);
         ctx.lineTo(margin.left, margin.top + plotH);
+        ctx.moveTo(margin.left + plotW, margin.top);
         ctx.lineTo(margin.left + plotW, margin.top + plotH);
         ctx.stroke();
 
         ctx.fillStyle = "#333333";
-        ctx.font = "12px sans-serif";
-        const yTicks = 5;
-        for (let i = 0; i < yTicks; i++) {
-            const t = i / (yTicks - 1);
-            const value = maxRate - (maxRate - minRate) * t;
-            const y = margin.top + plotH * t;
-            ctx.strokeStyle = "#eeeeee";
-            ctx.beginPath();
-            ctx.moveTo(margin.left, y);
-            ctx.lineTo(margin.left + plotW, y);
-            ctx.stroke();
-            ctx.fillText(value.toFixed(4), 6, y + 4);
-        }
-
-        const labelIndexes = [0, Math.floor((history.length - 1) / 2), history.length - 1]
-            .filter((v, idx, arr) => arr.indexOf(v) === idx);
-        labelIndexes.forEach((idx) => {
-            const x = xAt(idx);
-            const label = history[idx].fetchedDate ?? "";
-            const textWidth = ctx.measureText(label).width;
-            const clampedX = Math.min(
-                Math.max(x - textWidth / 2, margin.left),
-                width - margin.right + (margin.right - textWidth)
-            );
-            ctx.fillText(label, clampedX, margin.top + plotH + 20);
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        xLabelItems.forEach((item) => {
+            ctx.save();
+            ctx.translate(item.x - 4, margin.top + plotH + 12);
+            ctx.rotate(Math.PI / 2);
+            ctx.fillText(item.label, 0, 0);
+            ctx.restore();
         });
 
         ctx.strokeStyle = "#1f77b4";
         ctx.lineWidth = 2;
         ctx.beginPath();
+        chartPoints = [];
         history.forEach((item, idx) => {
             const x = xAt(idx);
             const y = yAt(Number(item.rate));
+            chartPoints.push({ x, rate: Number(item.rate) });
             if (idx === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         });
@@ -240,7 +463,17 @@
         ctx.font = "bold 13px sans-serif";
         ctx.fillText(`${from}/${to} レート推移`, margin.left, 14);
 
+        chartWrapEl.style.display = "block";
         chartEl.style.display = "block";
+        chartScaleEl.innerHTML = scaleItems
+            .map((item) => `<div class="history-chart-scale-item" style="top:${Math.round(item.y)}px;">${item.value}</div>`)
+            .join("");
+        chartScaleEl.style.display = "block";
+        if (isChartVisible) {
+            chartRateBadgeEl.style.display = "block";
+        }
+        chartScrollEl.scrollLeft = Math.max(0, chartScrollEl.scrollWidth - chartScrollEl.clientWidth);
+        updateRightVisibleRate();
     }
 
     async function loadHistory() {
@@ -250,6 +483,10 @@
         const fromObj = fromDate ? parseDate(fromDate) : null;
         const toObj = toDate ? parseDate(toDate) : null;
 
+        if (!fromDate && !toDate) {
+            showMessage("FROM または TO のいずれかを入力してください。");
+            return;
+        }
         if (fromDate && toDate && fromDate > toDate) {
             showMessage("FROM は TO 以前の日付を指定してください。");
             return;
@@ -304,12 +541,42 @@
             }
 
             renderHistory(from, to, filtered);
+            isChartVisible = false;
+            clearChart();
+            showTableArea();
         } catch (error) {
             showMessage("履歴データを取得できませんでした。起動時のレート取得処理を確認してください。");
         }
     }
 
     loadButton.addEventListener("click", loadHistory);
+    chartToggleButton.addEventListener("click", () => {
+        if (chartRows.length === 0) return;
+
+        isChartVisible = !isChartVisible;
+        if (isChartVisible) {
+            hideTableArea();
+            renderHistoryChart(chartRows, currentChartFrom, currentChartTo);
+            return;
+        }
+        clearChart();
+        showTableArea();
+    });
+    chartScrollEl.addEventListener("scroll", () => {
+        if (!isChartVisible) return;
+        updateRightVisibleRate();
+    });
+    prevButtonEl.addEventListener("click", () => {
+        if (currentPage <= 1) return;
+        currentPage -= 1;
+        renderHistoryPage();
+    });
+    nextButtonEl.addEventListener("click", () => {
+        const totalPages = Math.max(1, Math.ceil(paginatedRows.length / PAGE_SIZE));
+        if (currentPage >= totalPages) return;
+        currentPage += 1;
+        renderHistoryPage();
+    });
 })();
 </script>
 </body>
