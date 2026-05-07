@@ -65,7 +65,7 @@
 
     <delete id="deleteOlderThan365Days">
         DELETE FROM exchange_rate
-        WHERE fetched_date &lt; DATEADD(DAY, -365, CURRENT_DATE)
+        WHERE fetched_date &lt; CURRENT_DATE - 365
     </delete>
 
 </mapper>
