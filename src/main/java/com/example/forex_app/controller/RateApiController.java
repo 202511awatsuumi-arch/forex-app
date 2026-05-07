@@ -3,12 +3,17 @@ package com.example.forex_app.controller;
 import com.example.forex_app.model.ExchangeRate;
 import com.example.forex_app.service.ForexService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +62,42 @@ public class RateApiController {
     @GetMapping("/rates/history")
     public List<ExchangeRate> getRateHistory(
             @RequestParam String from,
-            @RequestParam String to) {
-        return forexService.getHistory(from, to);
+            @RequestParam String to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        LocalDate today = LocalDate.now();
+
+        LocalDate endDate;
+        LocalDate startDate;
+
+        if (fromDate != null && toDate != null) {
+            startDate = fromDate;
+            endDate = toDate;
+        } else if (fromDate != null) {
+            startDate = fromDate;
+            endDate = today;
+        } else if (toDate != null) {
+            endDate = toDate;
+            startDate = toDate.minusDays(364);
+        } else {
+            endDate = today;
+            startDate = today.minusDays(364);
+        }
+
+        if (startDate.isAfter(endDate)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fromDate must be on or before toDate");
+        }
+        if (startDate.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fromDate must not be in the future");
+        }
+        if (endDate.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "toDate must not be in the future");
+        }
+        long days = ChronoUnit.DAYS.between(startDate, endDate) + 1;
+        if (days > 365) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date range must be 365 days or less");
+        }
+
+        return forexService.getHistory(from, to, startDate, endDate);
     }
 }

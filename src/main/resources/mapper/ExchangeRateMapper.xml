@@ -23,7 +23,8 @@
         SELECT * FROM exchange_rate
         WHERE base_currency = #{baseCurrency}
           AND target_currency = #{targetCurrency}
-          AND fetched_date >= DATEADD(DAY, -365, CURRENT_DATE)
+          AND fetched_date >= #{startDate}
+          AND fetched_date &lt;= #{endDate}
         ORDER BY fetched_date ASC
     </select>
 

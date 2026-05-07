@@ -16,6 +16,8 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,7 +44,7 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/rates - 正常：最新レートが返る")
+    @DisplayName("GET /api/rates - latest rates are returned")
     void getLatestRates_returnsRates() throws Exception {
         when(forexService.getLatestRate("USD", "JPY"))
             .thenReturn(dummyRate("USD", "JPY", 159.21));
@@ -57,7 +59,7 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/rates - 異常：DBが空の時はratesが空で返る")
+    @DisplayName("GET /api/rates - empty rates when no latest data")
     void getLatestRates_whenEmpty_returnsEmptyRates() throws Exception {
         when(forexService.getLatestRate("USD", "JPY")).thenReturn(null);
         when(forexService.getLatestRate("USD", "EUR")).thenReturn(null);
@@ -69,7 +71,7 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/convert - 正常：USD→JPY換算が正しい")
+    @DisplayName("GET /api/convert - USD to JPY returns expected result")
     void convert_usdToJpy_returnsCorrectResult() throws Exception {
         when(forexService.convert(eq("USD"), eq("JPY"), any(BigDecimal.class)))
             .thenReturn(new BigDecimal("15921.0000"));
@@ -86,7 +88,7 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/convert - 異常：レートなしの時はresult=0を返す")
+    @DisplayName("GET /api/convert - result=0 when no rate exists")
     void convert_whenNoRate_returnsZero() throws Exception {
         when(forexService.convert(eq("USD"), eq("JPY"), any(BigDecimal.class)))
             .thenReturn(BigDecimal.ZERO);
@@ -100,13 +102,14 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/rates/history - 正常：履歴が返る")
+    @DisplayName("GET /api/rates/history - history is returned")
     void getRateHistory_returnsHistory() throws Exception {
         List<ExchangeRate> history = List.of(
             dummyRate("USD", "JPY", 158.80),
             dummyRate("USD", "JPY", 159.21)
         );
-        when(forexService.getHistory("USD", "JPY")).thenReturn(history);
+        when(forexService.getHistory(eq("USD"), eq("JPY"), any(LocalDate.class), any(LocalDate.class)))
+            .thenReturn(history);
 
         mockMvc.perform(get("/api/rates/history")
                 .param("from", "USD")
@@ -116,14 +119,86 @@ class RateControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/rates/history - 異常：データなしは空配列を返す")
+    @DisplayName("GET /api/rates/history - empty list when no data")
     void getRateHistory_whenEmpty_returnsEmptyList() throws Exception {
-        when(forexService.getHistory("USD", "JPY")).thenReturn(List.of());
+        when(forexService.getHistory(eq("USD"), eq("JPY"), any(LocalDate.class), any(LocalDate.class)))
+            .thenReturn(List.of());
 
         mockMvc.perform(get("/api/rates/history")
                 .param("from", "USD")
                 .param("to", "JPY"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("GET /api/rates/history - date range parameters are accepted and service is called")
+    void getRateHistory_withDateRangeParams_returnsHistory() throws Exception {
+        List<ExchangeRate> history = List.of(
+            dummyRate("USD", "JPY", 158.80),
+            dummyRate("USD", "JPY", 159.21)
+        );
+        when(forexService.getHistory(eq("USD"), eq("JPY"), any(LocalDate.class), any(LocalDate.class)))
+            .thenReturn(history);
+
+        mockMvc.perform(get("/api/rates/history")
+                .param("from", "USD")
+                .param("to", "JPY")
+                .param("fromDate", "2026-04-01")
+                .param("toDate", "2026-04-30"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(2));
+
+        verify(forexService).getHistory(eq("USD"), eq("JPY"), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @DisplayName("GET /api/rates/history - FROM>TO returns 400 and service is not called")
+    void getRateHistory_whenFromAfterTo_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/rates/history")
+                .param("from", "USD")
+                .param("to", "JPY")
+                .param("fromDate", "2026-05-01")
+                .param("toDate", "2026-04-30"))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(forexService);
+    }
+
+    @Test
+    @DisplayName("GET /api/rates/history - future FROM date returns 400 and service is not called")
+    void getRateHistory_whenFromDateInFuture_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/rates/history")
+                .param("from", "USD")
+                .param("to", "JPY")
+                .param("fromDate", "2999-01-01"))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(forexService);
+    }
+
+    @Test
+    @DisplayName("GET /api/rates/history - future TO date returns 400 and service is not called")
+    void getRateHistory_whenToDateInFuture_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/rates/history")
+                .param("from", "USD")
+                .param("to", "JPY")
+                .param("toDate", "2999-01-01"))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(forexService);
+    }
+
+    @Test
+    @DisplayName("GET /api/rates/history - 366 days range returns 400 and service is not called")
+    void getRateHistory_whenRangeExceeds365Days_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/rates/history")
+                .param("from", "USD")
+                .param("to", "JPY")
+                .param("fromDate", "2025-01-01")
+                .param("toDate", "2026-01-01"))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(forexService);
     }
 }

@@ -29,7 +29,13 @@
                 <option value="EUR">EUR</option>
             </select>
 
-            <button id="loadButton" type="button">取得</button>
+            <label class="label" for="dateFrom">FROM</label>
+            <input id="dateFrom" type="date">
+
+            <label class="label" for="dateTo">TO</label>
+            <input id="dateTo" type="date">
+
+            <button id="loadButton" type="button">表示/検索</button>
         </div>
 
         <div id="message" class="desc" aria-live="polite"></div>
@@ -60,6 +66,8 @@
     const FIXED_FROM = "USD";
 
     const toSelect = document.getElementById("to");
+    const dateFromInput = document.getElementById("dateFrom");
+    const dateToInput = document.getElementById("dateTo");
     const loadButton = document.getElementById("loadButton");
     const messageEl = document.getElementById("message");
     const tableEl = document.getElementById("historyTable");
@@ -92,6 +100,31 @@
     function formatDateTime(value) {
         if (!value) return "-";
         return value.replace("T", " ");
+    }
+
+    function filterByDateRange(history) {
+        const fromDate = dateFromInput.value;
+        const toDate = dateToInput.value;
+        return history.filter((item) => {
+            const fetchedDate = String(item.fetchedDate ?? "");
+            if (!fetchedDate) return false;
+            if (fromDate && fetchedDate < fromDate) return false;
+            if (toDate && fetchedDate > toDate) return false;
+            return true;
+        });
+    }
+
+    function parseDate(value) {
+        return new Date(`${value}T00:00:00`);
+    }
+
+    function toDateOnly(date) {
+        return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    }
+
+    function daysInclusive(from, to) {
+        const msPerDay = 24 * 60 * 60 * 1000;
+        return Math.floor((to.getTime() - from.getTime()) / msPerDay) + 1;
     }
 
     function renderHistory(from, to, history) {
@@ -211,14 +244,46 @@
     }
 
     async function loadHistory() {
-        clearTable();
-        showMessage("");
+        const fromDate = dateFromInput.value;
+        const toDate = dateToInput.value;
+        const today = toDateOnly(new Date());
+        const fromObj = fromDate ? parseDate(fromDate) : null;
+        const toObj = toDate ? parseDate(toDate) : null;
+
+        if (fromDate && toDate && fromDate > toDate) {
+            showMessage("FROM は TO 以前の日付を指定してください。");
+            return;
+        }
+        if (fromObj && fromObj > today) {
+            showMessage("FROM は今日以前の日付を指定してください。");
+            return;
+        }
+        if (toObj && toObj > today) {
+            showMessage("TO は今日以前の日付を指定してください。");
+            return;
+        }
+        if (fromObj && toObj && daysInclusive(fromObj, toObj) > 365) {
+            showMessage("期間は最大365日以内で指定してください。");
+            return;
+        }
+        if (fromObj && !toObj && daysInclusive(fromObj, today) > 365) {
+            showMessage("期間は最大365日以内で指定してください。");
+            return;
+        }
 
         const from = FIXED_FROM;
         const to = toSelect.value;
 
         try {
+            clearTable();
+            showMessage("");
             const params = new URLSearchParams({ from, to });
+            if (fromDate) {
+                params.set("fromDate", fromDate);
+            }
+            if (toDate) {
+                params.set("toDate", toDate);
+            }
             const response = await fetch(`/api/rates/history?${params.toString()}`);
 
             if (!response.ok) {
@@ -232,7 +297,13 @@
                 return;
             }
 
-            renderHistory(from, to, data);
+            const filtered = filterByDateRange(data);
+            if (filtered.length === 0) {
+                showMessage("指定期間の履歴データはありません。");
+                return;
+            }
+
+            renderHistory(from, to, filtered);
         } catch (error) {
             showMessage("履歴データを取得できませんでした。起動時のレート取得処理を確認してください。");
         }

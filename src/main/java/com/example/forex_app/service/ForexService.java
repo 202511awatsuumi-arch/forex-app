@@ -44,7 +44,17 @@ public class ForexService {
     }
 
     public List<ExchangeRate> getHistory(String baseCurrency, String targetCurrency) {
-        return exchangeRateMapper.findHistory(baseCurrency, targetCurrency);
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(364);
+        return getHistory(baseCurrency, targetCurrency, startDate, endDate);
+    }
+
+    public List<ExchangeRate> getHistory(
+            String baseCurrency,
+            String targetCurrency,
+            LocalDate startDate,
+            LocalDate endDate) {
+        return exchangeRateMapper.findHistory(baseCurrency, targetCurrency, startDate, endDate);
     }
 
     public BigDecimal convert(String from, String to, BigDecimal amount) {
