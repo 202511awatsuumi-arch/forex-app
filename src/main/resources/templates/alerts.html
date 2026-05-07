@@ -21,24 +21,21 @@
         <p class="desc">通貨ペア、閾値、条件を入力してアラートを登録します。</p>
 
         <div class="form-row">
-            <label class="label" for="baseCurrency">baseCurrency</label>
-            <select id="baseCurrency">
-                <option value="USD">USD</option>
-            </select>
+            <span class="label">基準通貨 USD（固定）</span>
 
-            <label class="label" for="targetCurrency">targetCurrency</label>
+            <label class="label" for="targetCurrency">対象通貨</label>
             <select id="targetCurrency">
                 <option value="JPY">JPY</option>
                 <option value="EUR">EUR</option>
             </select>
 
-            <label class="label" for="thresholdRate">thresholdRate</label>
+            <label class="label" for="thresholdRate">通知レート</label>
             <input type="number" id="thresholdRate" placeholder="例: 150.00" step="0.01" min="0">
 
-            <label class="label" for="alertType">alertType</label>
+            <label class="label" for="alertType">通知条件</label>
             <select id="alertType">
-                <option value="ABOVE">ABOVE</option>
-                <option value="BELOW">BELOW</option>
+                <option value="ABOVE">以上になったら通知</option>
+                <option value="BELOW">以下になったら通知</option>
             </select>
 
             <button id="registerButton" type="button">登録</button>
@@ -76,7 +73,6 @@
     const tableEl = document.getElementById("alertTable");
     const tbodyEl = document.getElementById("alertTableBody");
 
-    const baseCurrencyEl = document.getElementById("baseCurrency");
     const targetCurrencyEl = document.getElementById("targetCurrency");
     const thresholdRateEl = document.getElementById("thresholdRate");
     const alertTypeEl = document.getElementById("alertType");
@@ -153,7 +149,7 @@
         }
 
         const payload = {
-            baseCurrency: baseCurrencyEl.value,
+            baseCurrency: "USD",
             targetCurrency: targetCurrencyEl.value,
             thresholdRate: Number(thresholdRate),
             alertType: alertTypeEl.value

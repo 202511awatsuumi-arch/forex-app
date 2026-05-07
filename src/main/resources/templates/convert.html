@@ -122,7 +122,7 @@
             const data = await response.json();
             const formattedAmount = Number(data.amount).toLocaleString();
             const formattedResult = Number(data.result).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
+                minimumFractionDigits: 4,
                 maximumFractionDigits: 4
             });
 

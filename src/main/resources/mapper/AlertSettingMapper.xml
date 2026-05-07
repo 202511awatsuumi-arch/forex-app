@@ -4,7 +4,7 @@
 <mapper namespace="com.example.forex_app.mapper.AlertSettingMapper">
 
     <select id="findAll" resultType="com.example.forex_app.model.AlertSetting">
-        SELECT * FROM alert_setting ORDER BY created_at DESC
+        SELECT * FROM alert_setting ORDER BY id ASC
     </select>
 
     <insert id="insert" parameterType="com.example.forex_app.model.AlertSetting"

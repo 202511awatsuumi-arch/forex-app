@@ -477,6 +477,11 @@
     }
 
     async function loadHistory() {
+        clearTable();
+        clearChart();
+        isChartVisible = false;
+        chartRows = [];
+
         const fromDate = dateFromInput.value;
         const toDate = dateToInput.value;
         const today = toDateOnly(new Date());
